@@ -80,9 +80,7 @@ async fn main() -> Result<()> {
 
     // Log auto-enable of TLS (must happen after tracing is initialized)
     if config.is_tls_active() && !config.tls_enabled {
-        tracing::info!(
-            "TLS certificate and key provided — automatically enabling HTTPS."
-        );
+        tracing::info!("TLS certificate and key provided — automatically enabling HTTPS.");
     }
 
     // Initialize authentication manager
@@ -179,10 +177,12 @@ async fn main() -> Result<()> {
     let app = build_app(app_state);
 
     let addr = format!("{}:{}", config.server_host, config.server_port);
-    let sock_addr: std::net::SocketAddr = addr
-        .parse()
-        .context("Failed to parse server address")?;
-    let protocol = if config.is_tls_active() { "https" } else { "http" };
+    let sock_addr: std::net::SocketAddr = addr.parse().context("Failed to parse server address")?;
+    let protocol = if config.is_tls_active() {
+        "https"
+    } else {
+        "http"
+    };
 
     // Build optional TLS configuration
     let rustls_config = if config.is_tls_active() {
@@ -351,11 +351,15 @@ fn build_app(state: routes::AppState) -> axum::Router {
         .merge(health_routes)
         .merge(openai_routes)
         .merge(anthropic_routes)
-        // Apply middleware stack: CORS → Debug → (Auth is per-route)
+        // Apply middleware stack: CORS → Debug → HSTS → (Auth is per-route)
         .layer(middleware::cors_layer())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::debug_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::hsts_middleware,
         ))
 }
 
@@ -373,7 +377,11 @@ fn print_startup_banner(config: &config::Config) {
 
     println!("{}", banner);
     println!("  Version:     {}", env!("CARGO_PKG_VERSION"));
-    let protocol = if config.is_tls_active() { "https" } else { "http" };
+    let protocol = if config.is_tls_active() {
+        "https"
+    } else {
+        "http"
+    };
     println!(
         "  Server:      {}://{}:{}",
         protocol, config.server_host, config.server_port

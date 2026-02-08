@@ -80,12 +80,17 @@ Kiro API always returns AWS Event Stream format. The `streaming` module:
 3. Handles `<thinking>` tag parsing for reasoning content
 4. Converts to OpenAI SSE (`data: {...}`) or Anthropic SSE (`event: ... data: ...`) format
 
-### TLS
+### TLS and HTTPS Enforcement
 
 The gateway supports HTTPS via `axum-server` with `rustls`. When `--tls` is passed (or `TLS_ENABLED=true`):
 1. If `--tls-cert` and `--tls-key` are provided, loads the custom PEM files
 2. Otherwise, auto-generates a self-signed certificate (saved to `~/.kiro-gateway/tls/` for reuse)
 3. Certificates are automatically regenerated 30 days before expiry
+
+**HTTPS Enforcement:**
+- When TLS is enabled, the server only accepts HTTPS connections (HTTP is rejected at the protocol level)
+- HSTS (HTTP Strict Transport Security) headers are added to all responses (`Strict-Transport-Security: max-age=31536000`), instructing clients to always use HTTPS
+- TLS is required when binding to non-localhost addresses (0.0.0.0 or specific IPs) - startup validation prevents insecure configurations
 
 Both HTTP and HTTPS paths use `axum_server::Handle` for unified graceful shutdown.
 
