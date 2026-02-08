@@ -26,9 +26,8 @@ async fn main() -> Result<()> {
     // Install the rustls crypto provider before any TLS operations.
     // Both `ring` and `aws-lc-rs` can end up compiled via transitive deps;
     // an explicit install prevents the runtime auto-detection panic.
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .expect("Failed to install rustls CryptoProvider");
+    // If a provider is already installed, that's fine - we can continue.
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     // Check if interactive setup is needed (no .env and missing required values)
     if config::needs_interactive_setup() {

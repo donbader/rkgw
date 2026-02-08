@@ -3,6 +3,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use rcgen::{CertificateParams, KeyPair, SanType};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use x509_parser::prelude::*;
 
 /// Default directory name for storing auto-generated certificates
 const TLS_DIR_NAME: &str = "tls";
@@ -152,7 +153,10 @@ fn generate_self_signed_cert() -> Result<(String, String)> {
             let hostname = hostname.trim().to_string();
             if !hostname.is_empty() && hostname != "localhost" {
                 match hostname.clone().try_into() {
-                    Ok(dns_name) => sans.push(SanType::DnsName(dns_name)),
+                    Ok(dns_name) => {
+                        tracing::info!("Added system hostname to certificate SANs: {}", hostname);
+                        sans.push(SanType::DnsName(dns_name));
+                    }
                     Err(_) => {
                         tracing::warn!("Skipping invalid hostname for TLS SAN: {}", hostname);
                     }
@@ -164,9 +168,9 @@ fn generate_self_signed_cert() -> Result<(String, String)> {
     params.subject_alt_names = sans;
 
     // Set validity period
-    let now = time::OffsetDateTime::now_utc();
+    let now = ::time::OffsetDateTime::now_utc();
     params.not_before = now;
-    params.not_after = now + time::Duration::days(SELF_SIGNED_VALIDITY_DAYS as i64);
+    params.not_after = now + ::time::Duration::days(SELF_SIGNED_VALIDITY_DAYS as i64);
 
     // Generate key pair and self-sign
     let key_pair = KeyPair::generate().context("Failed to generate TLS key pair")?;
@@ -276,27 +280,67 @@ fn is_self_signed_cert_compatible(tls_dir: &Path) -> bool {
 
 /// Check whether a self-signed certificate is expired or close to expiry.
 ///
-/// Uses the file's modification time as a proxy for the certificate's
-/// `not_before` date — this is safe because we are the ones who generated
-/// and wrote the file. Regeneration is triggered `RENEWAL_BUFFER_DAYS`
-/// before actual expiry so clients never hit a hard failure.
+/// Parses the actual certificate file and checks its notAfter field.
+/// Regeneration is triggered `RENEWAL_BUFFER_DAYS` before actual expiry
+/// so clients never hit a hard failure.
 fn is_self_signed_cert_expired(cert_path: &Path) -> bool {
-    let metadata = match std::fs::metadata(cert_path) {
-        Ok(m) => m,
-        Err(_) => return false,
+    // Read the certificate file
+    let cert_pem = match std::fs::read(cert_path) {
+        Ok(pem) => pem,
+        Err(e) => {
+            tracing::debug!("Failed to read certificate file: {}", e);
+            return false; // If file doesn't exist, not expired (will be generated)
+        }
     };
-    let modified = match metadata.modified() {
-        Ok(t) => t,
-        Err(_) => return false,
+
+    // Parse PEM and extract X.509 certificate
+    let (_, pem_cert) = match parse_x509_pem(&cert_pem) {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::warn!("Failed to parse certificate PEM: {}", e);
+            return true; // If we can't parse it, treat as expired to force regeneration
+        }
     };
-    let age = match modified.elapsed() {
-        Ok(duration) => duration,
-        // If the modification time is in the future (clock skew or manual change),
-        // treat the certificate as expired to force regeneration and recover safely.
-        Err(_) => return true,
+
+    // Parse the X.509 certificate from the PEM contents
+    let (_, cert) = match parse_x509_certificate(&pem_cert.contents) {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::warn!("Failed to parse X.509 certificate: {}", e);
+            return true; // Can't parse, treat as expired
+        }
     };
-    let max_age_secs = (SELF_SIGNED_VALIDITY_DAYS - RENEWAL_BUFFER_DAYS) as u64 * 24 * 60 * 60;
-    age > std::time::Duration::from_secs(max_age_secs)
+
+    // Get the notAfter time
+    let not_after = cert.validity().not_after;
+
+    // Convert to Unix timestamp
+    let not_after_timestamp = not_after.timestamp();
+
+    // Calculate the renewal threshold (RENEWAL_BUFFER_DAYS before expiry)
+    let renewal_buffer_secs = (RENEWAL_BUFFER_DAYS as i64) * 24 * 60 * 60;
+    let renewal_threshold = not_after_timestamp - renewal_buffer_secs;
+
+    // Get current time
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    // Certificate should be renewed if we're past the renewal threshold
+    let should_renew = now >= renewal_threshold;
+
+    if should_renew {
+        tracing::debug!(
+            "Certificate expires at {} (Unix timestamp: {}), renewal threshold: {}, current time: {}",
+            not_after,
+            not_after_timestamp,
+            renewal_threshold,
+            now
+        );
+    }
+
+    should_renew
 }
 
 /// Return the default directory for storing auto-generated TLS certificates.
@@ -376,8 +420,10 @@ mod tests {
     }
 
     #[test]
-    fn test_is_self_signed_cert_expired_fresh_file() {
-        // A freshly created file should not be expired
+    fn test_is_self_signed_cert_expired_fresh_cert() {
+        // Generate a fresh certificate and verify it's not expired
+        let (cert_pem, _key_pem) = generate_self_signed_cert().unwrap();
+
         let dir = std::env::temp_dir().join(format!(
             "kiro_tls_test_fresh_{}_{}",
             std::process::id(),
@@ -388,9 +434,32 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let cert_path = dir.join("test_cert.pem");
-        std::fs::write(&cert_path, "test").unwrap();
+        std::fs::write(&cert_path, cert_pem).unwrap();
 
+        // A freshly generated certificate should not be expired
         assert!(!is_self_signed_cert_expired(&cert_path));
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_is_self_signed_cert_expired_invalid_cert() {
+        // Invalid certificate data should be treated as expired
+        let dir = std::env::temp_dir().join(format!(
+            "kiro_tls_test_invalid_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cert_path = dir.join("test_cert.pem");
+        std::fs::write(&cert_path, "invalid certificate data").unwrap();
+
+        // Invalid certificate should be treated as expired (will be regenerated)
+        assert!(is_self_signed_cert_expired(&cert_path));
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&dir);

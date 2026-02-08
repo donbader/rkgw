@@ -25,6 +25,7 @@ http-body-util = "0.1"
 rcgen = "0.13"
 rustls = { version = "0.23", features = ["ring"], default-features = false }
 time = "0.3"
+x509-parser = "0.16"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
