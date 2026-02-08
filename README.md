@@ -95,7 +95,7 @@ cargo build --release
 ./target/release/kiro-gateway
 ```
 
-The server will be available at `http://localhost:8000`.
+The server will be available at `http://localhost:8000` or `https://localhost:8000` if TLS is enabled.
 
 🔒 **Default Binding:** The gateway defaults to `127.0.0.1` (localhost only) for security. To allow network access, use `--host 0.0.0.0 --tls`. See the [Security](#-security) section for details.
 
@@ -281,6 +281,7 @@ For detailed architecture documentation including component diagrams, data flows
 ### OpenAI API
 
 ```bash
+# use https if TLS is enabled
 curl http://localhost:8000/v1/chat/completions \
   -H "Authorization: Bearer my-super-secret-password-123" \
   -H "Content-Type: application/json" \
@@ -294,6 +295,7 @@ curl http://localhost:8000/v1/chat/completions \
 ### Anthropic API
 
 ```bash
+# use https if TLS is enabled
 curl http://localhost:8000/v1/messages \
   -H "x-api-key: my-super-secret-password-123" \
   -H "anthropic-version: 2023-06-01" \
@@ -330,7 +332,7 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
       "npm": "@ai-sdk/openai-compatible",
       "name": "Kiro Proxy",
       "options": {
-        "baseURL": "http://127.0.0.1:8000/v1",
+        "baseURL": "http://127.0.0.1:8000/v1",  // use https if TLS is enabled
         "apiKey": "your-proxy-api-key"
       },
       "auto": {
@@ -434,6 +436,7 @@ To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/cl
 **One-liner:**
 
 ```bash
+# use https for ANTHROPIC_BASE_URL if TLS is enabled
 ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
 ```
 
@@ -442,7 +445,7 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key
 **Or add to your shell profile** (`~/.bashrc`, `~/.zshrc`, etc.):
 
 ```bash
-export ANTHROPIC_BASE_URL=http://127.0.0.1:8000
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8000 # use https if TLS is enabled
 export ANTHROPIC_AUTH_TOKEN=your-proxy-api-key
 export CLAUDE_CODE_ENABLE_TELEMETRY=0
 export DISABLE_PROMPT_CACHING=1
@@ -477,7 +480,7 @@ To use this gateway with the [Zed Editor](https://zed.dev/)'s ACP Claude Agent, 
   "agent_servers": {
     "claude": {
       "env": {
-        "ANTHROPIC_BASE_URL": "http://127.0.0.1:8000",
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:8000", // use https if TLS is enabled
         "ANTHROPIC_AUTH_TOKEN": "your-proxy-api-key",
         "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
         "DISABLE_PROMPT_CACHING": "1",
