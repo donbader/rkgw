@@ -28,6 +28,12 @@ Set these in `.env` or export them:
 - `TLS_CERT` - Path to TLS certificate file (PEM format)
 - `TLS_KEY` - Path to TLS private key file (PEM format)
 
+## Dashboard
+
+The gateway includes an optional real-time TUI (Terminal User Interface) dashboard that displays metrics, logs, and token usage. Enable it with the `--dashboard` flag or by pressing `d` during runtime.
+
+**Important:** When running with the dashboard enabled, exiting the dashboard (by pressing `q`) will also shut down the entire gateway server. This is by design - the dashboard and server share a unified shutdown mechanism via `axum_server::Handle`. If you need the server to continue running independently, start it without the `--dashboard` flag.
+
 ## Architecture
 
 This is a Rust proxy gateway that translates OpenAI and Anthropic API formats to the Kiro/CodeWhisperer API format, enabling Claude models to be used through standard API interfaces.

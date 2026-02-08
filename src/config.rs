@@ -8,7 +8,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct CliArgs {
-    /// Server host address
+    /// Server host address (use 127.0.0.1 or ::1 for localhost; the string "localhost" requires TLS)
     #[arg(short = 'H', long, env = "SERVER_HOST", default_value = "127.0.0.1")]
     pub host: String,
 
@@ -267,6 +267,14 @@ impl Config {
         let is_loopback = self.server_host == "127.0.0.1" || self.server_host == "::1";
 
         if !is_loopback && !self.is_tls_active() {
+            // Provide helpful hint if user specified "localhost" string
+            if self.server_host == "localhost" {
+                tracing::warn!(
+                    "Host 'localhost' requires TLS because only IP literals (127.0.0.1, ::1) are recognized as loopback. \
+                     Use --host 127.0.0.1 for local-only access without TLS, or enable TLS with --tls flag."
+                );
+            }
+
             anyhow::bail!(
                 "TLS is required when binding to non-localhost addresses (current: {}). \
                  Either enable TLS with --tls flag, or bind to localhost with --host 127.0.0.1",
