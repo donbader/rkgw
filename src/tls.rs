@@ -241,6 +241,17 @@ fn write_key_file(path: &Path, pem: &str) -> Result<()> {
         file.write_all(pem.as_bytes())
             .with_context(|| format!("Failed to write private key to: {}", path.display()))?;
 
+        // Explicitly set permissions to 0600 even if the file already existed
+        // (mode(0o600) only applies when creating a new file)
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(path, perms).with_context(|| {
+            format!(
+                "Failed to set permissions on private key file: {}",
+                path.display()
+            )
+        })?;
+
         Ok(())
     }
 
@@ -377,7 +388,14 @@ mod tests {
                 return;
             }
         };
-        assert!(dir.ends_with(".kiro-gateway/tls"));
+        // Check path components instead of string suffix for cross-platform compatibility
+        assert_eq!(dir.file_name().and_then(|s| s.to_str()), Some("tls"));
+        assert_eq!(
+            dir.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str()),
+            Some(".kiro-gateway")
+        );
     }
 
     #[test]
@@ -414,9 +432,8 @@ mod tests {
     #[test]
     fn test_is_self_signed_cert_expired_nonexistent_file() {
         // Non-existent file should not be considered expired
-        assert!(!is_self_signed_cert_expired(Path::new(
-            "/tmp/nonexistent_cert_12345.pem"
-        )));
+        let nonexistent_path = std::env::temp_dir().join("nonexistent_cert_12345.pem");
+        assert!(!is_self_signed_cert_expired(&nonexistent_path));
     }
 
     #[test]

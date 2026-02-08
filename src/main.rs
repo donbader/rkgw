@@ -175,10 +175,16 @@ async fn main() -> Result<()> {
 
     let app = build_app(app_state);
 
-    let addr = format!("{}:{}", config.server_host, config.server_port);
-    let mut resolved_addrs = tokio::net::lookup_host(&addr)
-        .await
-        .with_context(|| format!("Failed to resolve server address '{}'", addr))?;
+    // Use tuple form for lookup_host to properly handle IPv6 addresses like ::1
+    let mut resolved_addrs =
+        tokio::net::lookup_host((config.server_host.as_str(), config.server_port))
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to resolve server address '{}:{}'",
+                    config.server_host, config.server_port
+                )
+            })?;
     let sock_addr: std::net::SocketAddr = resolved_addrs
         .next()
         .context("No resolved socket addresses for configured server host")?;
@@ -251,7 +257,7 @@ async fn main() -> Result<()> {
         }
     } else {
         print_startup_banner(&config);
-        tracing::info!("🚀 Server listening on {}://{}", protocol, addr);
+        tracing::info!("🚀 Server listening on {}://{}", protocol, sock_addr);
 
         server_future.await.context("Server error")?;
     }
