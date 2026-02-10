@@ -20,6 +20,20 @@ Set these in `.env` or export them:
 - `KIRO_CLI_DB_FILE` - Path to kiro-cli SQLite database, e.g. `~/.kiro/data.db` (required)
 - `KIRO_REGION` - AWS region (default: `us-east-1`)
 
+## Optional Environment Variables
+
+- `SERVER_HOST` - Server bind address (default: `127.0.0.1`). Use `0.0.0.0` for network access (requires TLS).
+- `SERVER_PORT` - Server port (default: `8000`)
+- `TLS_ENABLED` - Enable HTTPS (`true`/`false`, default: `false`). Auto-generates a self-signed cert if `TLS_CERT`/`TLS_KEY` are not set.
+- `TLS_CERT` - Path to TLS certificate file (PEM format)
+- `TLS_KEY` - Path to TLS private key file (PEM format)
+
+## Dashboard
+
+The gateway includes an optional real-time TUI (Terminal User Interface) dashboard that displays metrics, logs, and token usage. Enable it with the `--dashboard` flag or by pressing `d` during runtime.
+
+**Important:** When running with the dashboard enabled, exiting the dashboard (by pressing `q`) will also shut down the entire gateway server. This is by design - the dashboard and server share a unified shutdown mechanism via `axum_server::Handle`. If you need the server to continue running independently, start it without the `--dashboard` flag.
+
 ## Architecture
 
 This is a Rust proxy gateway that translates OpenAI and Anthropic API formats to the Kiro/CodeWhisperer API format, enabling Claude models to be used through standard API interfaces.
@@ -55,6 +69,7 @@ Client Response (OpenAI/Anthropic format)
 - **resolver.rs** - Model name normalization (e.g., `claude-sonnet-4-5` → internal Kiro model ID)
 - **cache.rs** - In-memory model cache populated at startup from Kiro API
 - **thinking_parser.rs** - Extracts `<thinking>` blocks for extended thinking/reasoning support
+- **tls.rs** - TLS certificate loading, self-signed certificate generation, and expiry management
 
 ### Authentication Flow
 
@@ -70,6 +85,20 @@ Kiro API always returns AWS Event Stream format. The `streaming` module:
 2. Extracts `assistantResponseEvent` payloads
 3. Handles `<thinking>` tag parsing for reasoning content
 4. Converts to OpenAI SSE (`data: {...}`) or Anthropic SSE (`event: ... data: ...`) format
+
+### TLS and HTTPS Enforcement
+
+The gateway supports HTTPS via `axum-server` with `rustls`. When `--tls` is passed (or `TLS_ENABLED=true`):
+1. If `--tls-cert` and `--tls-key` are provided, loads the custom PEM files
+2. Otherwise, auto-generates a self-signed certificate (saved to `~/.kiro-gateway/tls/` for reuse)
+3. Certificates are automatically regenerated 30 days before expiry
+
+**HTTPS Enforcement:**
+- When TLS is enabled, the server only accepts HTTPS connections (HTTP is rejected at the protocol level)
+- HSTS (HTTP Strict Transport Security) headers are added to all responses (`Strict-Transport-Security: max-age=31536000`), instructing clients to always use HTTPS
+- TLS is required when binding to non-localhost addresses (0.0.0.0 or specific IPs) - startup validation prevents insecure configurations
+
+Both HTTP and HTTPS paths use `axum_server::Handle` for unified graceful shutdown.
 
 ## Testing
 
