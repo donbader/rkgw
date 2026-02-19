@@ -85,8 +85,11 @@ async fn main() -> Result<()> {
     println!("{}", "-".repeat(66));
 
     for model in &models {
+        eprint!("  [{model}] probing context window...");
         let context_limit = probe_context_window(&client, &gateway_url, &api_key, model).await;
+        eprint!(" done. probing output tokens...");
         let output_limit = probe_output_tokens(&client, &gateway_url, &api_key, model).await;
+        eprintln!(" done.");
 
         let ctx_str = match context_limit {
             Ok(n) => format!("~{n}"),
@@ -154,13 +157,16 @@ async fn probe_context_window(
     // Binary search
     while hi_chars - lo_chars > 20_000 {
         let mid = (lo_chars + hi_chars) / 2;
+        eprint!(" [{:.0}K chars]", mid as f64 / 1000.0);
         match send_probe(client, base_url, api_key, model, mid).await {
             Ok(usage) => {
                 last_good_tokens = usage.prompt_tokens;
                 lo_chars = mid;
+                eprint!("✓");
             }
             Err(_) => {
                 hi_chars = mid;
+                eprint!("✗");
             }
         }
     }
