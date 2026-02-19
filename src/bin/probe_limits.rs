@@ -48,7 +48,7 @@ impl Mode {
 const DEFAULT_GATEWAY_URL: &str = "http://127.0.0.1:8000";
 const PROBE_CONTENT: &str = "hello world ";
 const OUTPUT_PROBE_PROMPT: &str =
-    "Write a detailed essay about the history of computing. Be thorough and verbose.";
+    "Write a detailed essay about the history of computing. Be thorough and verbose. Do not stop until you have written at least 10000 words.";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -182,18 +182,41 @@ async fn probe_output_tokens(
     api_key: &str,
     model: &str,
 ) -> Result<Option<u64>> {
-    // Try progressively larger max_tokens until we get finish_reason=length
-    for &max_tokens in &[200u64, 500, 1000, 2000, 4096, 8192] {
-        let result = send_chat(client, base_url, api_key, model, OUTPUT_PROBE_PROMPT, max_tokens)
-            .await?;
+    // First confirm finish=length is achievable at a small cap.
+    // If the model stops early even at 200 tokens, it will stop early at any cap —
+    // no point trying larger values.
+    let result = send_chat(client, base_url, api_key, model, OUTPUT_PROBE_PROMPT, 200).await?;
+    if result.finish_reason.as_deref() != Some("length") {
+        return Ok(None);
+    }
 
-        if result.finish_reason.as_deref() == Some("length") {
-            return Ok(Some(result.completion_tokens));
+    // Binary search for the actual ceiling
+    let mut lo: u64 = 200;
+    let mut hi: u64 = 65536;
+    let mut last_good = lo;
+
+    // Confirm hi fails (model is capped below hi)
+    let hi_result = send_chat(client, base_url, api_key, model, OUTPUT_PROBE_PROMPT, hi).await?;
+    if hi_result.finish_reason.as_deref() == Some("length") {
+        // Still hitting length at 65536 — report that and stop
+        return Ok(Some(hi_result.completion_tokens));
+    }
+
+    while hi - lo > 256 {
+        let mid = (lo + hi) / 2;
+        eprint!(" [out:{mid}]");
+        let r = send_chat(client, base_url, api_key, model, OUTPUT_PROBE_PROMPT, mid).await?;
+        if r.finish_reason.as_deref() == Some("length") {
+            last_good = r.completion_tokens;
+            lo = mid;
+            eprint!("✓");
+        } else {
+            hi = mid;
+            eprint!("✗");
         }
     }
 
-    // Model always stops before hitting the cap
-    Ok(None)
+    Ok(Some(last_good))
 }
 
 // === HTTP helpers ===
