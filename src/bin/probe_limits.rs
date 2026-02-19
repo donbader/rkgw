@@ -29,19 +29,17 @@ enum Mode {
 impl Mode {
     fn parse() -> Result<Self> {
         let mut args = std::env::args().skip(1);
-        while let Some(arg) = args.next() {
-            match arg.as_str() {
-                "--model" => {
-                    let model = args.next().context("--model requires a model ID")?;
-                    return Ok(Self::SingleModel(model));
-                }
-                "--all-models" => return Ok(Self::AllModels),
-                other => anyhow::bail!("Unknown argument: {other}"),
+        match args.next().as_deref() {
+            Some("--model") => {
+                let model = args.next().context("--model requires a model ID")?;
+                Ok(Self::SingleModel(model))
             }
+            Some("--all-models") => Ok(Self::AllModels),
+            Some(other) => anyhow::bail!("Unknown argument: {other}"),
+            None => anyhow::bail!(
+                "Usage:\n  probe_limits --model <model-id>\n  probe_limits --all-models"
+            ),
         }
-        anyhow::bail!(
-            "Usage:\n  probe_limits --model <model-id>\n  probe_limits --all-models"
-        )
     }
 }
 
@@ -92,7 +90,7 @@ async fn main() -> Result<()> {
     }
 
     eprintln!();
-    println!("{:<32} | {:>18} | {}", "Model", "Context (tokens)", "Max output tokens");
+    println!("{:<32} | {:>18} | Max output tokens", "Model", "Context (tokens)");
     println!("{}", "-".repeat(72));
 
     for (model, context_limit, output_limit) in &results {
