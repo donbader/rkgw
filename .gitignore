@@ -47,4 +47,5 @@ logs/security/
 
 # Claude Code
 .claude/
+.mcp.json
 
