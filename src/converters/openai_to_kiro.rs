@@ -569,7 +569,6 @@ mod tests {
             server_port: 8000,
             proxy_api_key: "test".to_string(),
             kiro_region: "us-east-1".to_string(),
-            kiro_cli_db_file: std::path::PathBuf::from("/tmp/test.db"),
             streaming_timeout: 300,
             token_refresh_threshold: 300,
             first_token_timeout: 15,
@@ -585,9 +584,10 @@ mod tests {
             fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
             truncation_recovery: true,
             dashboard: false,
-            tls_enabled: false,
             tls_cert_path: None,
             tls_key_path: None,
+            web_ui_enabled: false,
+            database_url: None,
         }
     }
 

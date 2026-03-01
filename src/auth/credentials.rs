@@ -1,103 +1,69 @@
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
-use std::path::Path;
 
-use super::types::{AuthType, Credentials, SqliteDeviceRegistration, SqliteTokenData};
+use super::types::Credentials;
+use crate::web_ui::config_db::ConfigDb;
 
-/// Load credentials from SQLite database (kiro-cli)
-pub fn load_from_sqlite(path: &Path) -> Result<Credentials> {
-    let conn = rusqlite::Connection::open(path)
-        .with_context(|| format!("Failed to open SQLite database: {}", path.display()))?;
+/// Load credentials from the gateway's config database.
+///
+/// Reads refresh token, region, and OAuth client credentials from the config DB.
+/// Returns an error if `client_id` or `client_secret` is missing (device code
+/// OAuth setup must be completed first).
+pub async fn load_from_config_db(config_db: &ConfigDb) -> Result<Credentials> {
+    let refresh_token = config_db
+        .get_refresh_token()
+        .await?
+        .context("No kiro_refresh_token found in config database")?;
 
-    // Load token data (try both key formats)
-    let token_json: String = conn
-        .query_row(
-            "SELECT value FROM auth_kv WHERE key = ?",
-            ["kirocli:odic:token"],
-            |row| row.get(0),
-        )
-        .or_else(|_| {
-            conn.query_row(
-                "SELECT value FROM auth_kv WHERE key = ?",
-                ["codewhisperer:odic:token"],
-                |row| row.get(0),
-            )
-        })
-        .context("Failed to load token data from SQLite")?;
+    let region = config_db
+        .get("kiro_region")
+        .await?
+        .unwrap_or_else(|| "us-east-1".to_string());
 
-    let token_data: SqliteTokenData =
-        serde_json::from_str(&token_json).context("Failed to parse token data from SQLite")?;
+    // Load OAuth client credentials
+    let client_id = config_db.get("oauth_client_id").await?;
+    let client_secret = config_db.get("oauth_client_secret").await?;
+    let sso_region = config_db.get("oauth_sso_region").await?;
 
-    // Load device registration (try both key formats)
-    let registration_json: String = conn
-        .query_row(
-            "SELECT value FROM auth_kv WHERE key = ?",
-            ["kirocli:odic:device-registration"],
-            |row| row.get(0),
-        )
-        .or_else(|_| {
-            conn.query_row(
-                "SELECT value FROM auth_kv WHERE key = ?",
-                ["codewhisperer:odic:device-registration"],
-                |row| row.get(0),
-            )
-        })
-        .context("Failed to load device registration from SQLite")?;
+    if client_id.is_none() || client_secret.is_none() {
+        anyhow::bail!(
+            "OAuth client credentials (client_id/client_secret) not found in config database. \
+             Please complete the device code login via the web UI."
+        );
+    }
 
-    let registration: SqliteDeviceRegistration = serde_json::from_str(&registration_json)
-        .context("Failed to parse device registration from SQLite")?;
-
-    let refresh_token = token_data
-        .refresh_token
-        .context("SQLite token data must contain refresh_token")?;
-
-    let expires_at = token_data.expires_at.and_then(|s| parse_datetime(&s).ok());
-
-    // SSO region is used for OIDC token refresh only
-    // API region stays as us-east-1 (CodeWhisperer is only available there)
-    let sso_region = token_data.region.or(registration.region);
+    tracing::info!("Loaded credentials from config DB (AWS SSO OIDC auth)");
 
     Ok(Credentials {
         refresh_token,
-        access_token: token_data.access_token,
-        expires_at,
+        access_token: None,
+        expires_at: None,
         profile_arn: None,
-        region: "us-east-1".to_string(), // CodeWhisperer API region
-        client_id: registration.client_id,
-        client_secret: registration.client_secret,
+        region,
+        client_id,
+        client_secret,
         sso_region,
-        scopes: token_data.scopes,
+        scopes: None,
     })
-}
-
-/// Detect authentication type based on credentials
-pub fn detect_auth_type(creds: &Credentials) -> AuthType {
-    if creds.client_id.is_some() && creds.client_secret.is_some() {
-        tracing::info!("Detected auth type: AWS SSO OIDC (kiro-cli)");
-        AuthType::AwsSsoOidc
-    } else {
-        tracing::warn!("Missing client_id or client_secret - this should not happen with kiro-cli");
-        AuthType::AwsSsoOidc
-    }
-}
-
-/// Parse datetime from various ISO 8601 formats
-fn parse_datetime(s: &str) -> Result<DateTime<Utc>> {
-    // Handle Z suffix
-    let normalized = if s.ends_with('Z') {
-        s.replace('Z', "+00:00")
-    } else {
-        s.to_string()
-    };
-
-    DateTime::parse_from_rfc3339(&normalized)
-        .map(|dt| dt.with_timezone(&Utc))
-        .with_context(|| format!("Failed to parse datetime: {}", s))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{DateTime, Utc};
+
+    /// Parse datetime from various ISO 8601 formats
+    fn parse_datetime(s: &str) -> Result<DateTime<Utc>> {
+        // Handle Z suffix
+        let normalized = if s.ends_with('Z') {
+            s.replace('Z', "+00:00")
+        } else {
+            s.to_string()
+        };
+
+        DateTime::parse_from_rfc3339(&normalized)
+            .map(|dt| dt.with_timezone(&Utc))
+            .with_context(|| format!("Failed to parse datetime: {}", s))
+    }
 
     #[test]
     fn test_parse_datetime() {
@@ -110,19 +76,81 @@ mod tests {
         assert_eq!(dt.to_rfc3339(), "2025-01-12T10:30:00+00:00");
     }
 
-    #[test]
-    fn test_detect_auth_type() {
-        let creds = Credentials {
-            refresh_token: "token".to_string(),
-            access_token: None,
-            expires_at: None,
-            profile_arn: None,
-            region: "us-east-1".to_string(),
-            client_id: Some("client".to_string()),
-            client_secret: Some("secret".to_string()),
-            sso_region: None,
-            scopes: None,
+    /// Helper to connect to the test database using DATABASE_URL.
+    /// Returns None if DATABASE_URL is not set (skips database-dependent tests).
+    async fn setup_test_db() -> Option<ConfigDb> {
+        let url = std::env::var("DATABASE_URL").ok()?;
+        ConfigDb::connect(&url).await.ok()
+    }
+
+    #[tokio::test]
+    async fn test_load_from_config_db_with_oauth_creds() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping test_load_from_config_db_with_oauth_creds: DATABASE_URL not set");
+            return;
         };
-        assert_eq!(detect_auth_type(&creds), AuthType::AwsSsoOidc);
+        db.set("kiro_refresh_token", "my-refresh-token", "test")
+            .await
+            .unwrap();
+        db.set("kiro_region", "us-west-2", "test").await.unwrap();
+        db.set("oauth_client_id", "my-client-id", "test")
+            .await
+            .unwrap();
+        db.set("oauth_client_secret", "my-client-secret", "test")
+            .await
+            .unwrap();
+
+        let creds = load_from_config_db(&db).await.unwrap();
+        assert_eq!(creds.refresh_token, "my-refresh-token");
+        assert_eq!(creds.region, "us-west-2");
+        assert_eq!(creds.client_id.as_deref(), Some("my-client-id"));
+        assert_eq!(creds.client_secret.as_deref(), Some("my-client-secret"));
+    }
+
+    #[tokio::test]
+    async fn test_load_from_config_db_missing_oauth_creds() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping test_load_from_config_db_missing_oauth_creds: DATABASE_URL not set");
+            return;
+        };
+        db.set("kiro_refresh_token", "my-refresh-token", "test")
+            .await
+            .unwrap();
+
+        let result = load_from_config_db(&db).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("OAuth client credentials"));
+    }
+
+    #[tokio::test]
+    async fn test_load_from_config_db_default_region() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping test_load_from_config_db_default_region: DATABASE_URL not set");
+            return;
+        };
+        db.set("kiro_refresh_token", "token", "test").await.unwrap();
+        db.set("oauth_client_id", "cid", "test").await.unwrap();
+        db.set("oauth_client_secret", "csec", "test").await.unwrap();
+
+        let creds = load_from_config_db(&db).await.unwrap();
+        assert_eq!(creds.region, "us-east-1");
+    }
+
+    #[tokio::test]
+    async fn test_load_from_config_db_missing_token() {
+        let Some(db) = setup_test_db().await else {
+            eprintln!("Skipping test_load_from_config_db_missing_token: DATABASE_URL not set");
+            return;
+        };
+
+        let result = load_from_config_db(&db).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("kiro_refresh_token"));
     }
 }

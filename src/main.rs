@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
 use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, RwLock};
 
 mod auth;
 mod cache;
@@ -17,10 +18,11 @@ mod resolver;
 mod routes;
 mod streaming;
 mod thinking_parser;
-mod truncation;
 mod tls;
 mod tokenizer;
+mod truncation;
 mod utils;
+mod web_ui;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -30,19 +32,8 @@ async fn main() -> Result<()> {
     // If a provider is already installed, that's fine - we can continue.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // Check if interactive setup is needed (no .env and missing required values)
-    if config::needs_interactive_setup() {
-        let interactive_config = config::run_interactive_setup()?;
-
-        // Set environment variables from interactive config so Config::load() can use them
-        std::env::set_var("PROXY_API_KEY", &interactive_config.proxy_api_key);
-        std::env::set_var("KIRO_CLI_DB_FILE", &interactive_config.kiro_cli_db_file);
-        std::env::set_var("KIRO_REGION", &interactive_config.kiro_region);
-        std::env::set_var("SERVER_PORT", &interactive_config.server_port);
-    }
-
-    // Load configuration first (for log level)
-    let config = config::Config::load()?;
+    // Load bootstrap configuration from CLI args (minimal subset)
+    let mut config = config::Config::load()?;
     config.validate()?;
 
     let log_buffer = Arc::new(Mutex::new(VecDeque::new()));
@@ -51,7 +42,7 @@ async fn main() -> Result<()> {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level));
 
-    if config.dashboard {
+    if config.dashboard || config.web_ui_enabled {
         use tracing_subscriber::prelude::*;
 
         let dashboard_layer = dashboard::log_layer::DashboardLayer::new(Arc::clone(&log_buffer));
@@ -70,7 +61,46 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    tracing::info!("🚀 Kiro Gateway starting...");
+    tracing::info!("Kiro Gateway starting...");
+
+    // Connect to the PostgreSQL config database
+    let config_db = if let Some(ref url) = config.database_url {
+        match web_ui::config_db::ConfigDb::connect(url).await {
+            Ok(db) => {
+                tracing::info!("Connected to PostgreSQL database");
+                Some(Arc::new(db))
+            }
+            Err(e) => {
+                tracing::warn!("Failed to connect to database: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Check if setup is complete
+    let setup_complete_flag = if let Some(ref db) = config_db {
+        db.is_setup_complete().await
+    } else {
+        false
+    };
+
+    let setup_complete = Arc::new(AtomicBool::new(setup_complete_flag));
+
+    if setup_complete_flag {
+        // Setup complete — load config from DB
+        if let Some(ref db) = config_db {
+            db.load_into_config(&mut config)
+                .await
+                .context("Failed to load config from database")?;
+            tracing::info!("Configuration loaded from database");
+        }
+    } else {
+        tracing::warn!("Setup not complete — starting in setup-only mode");
+        tracing::warn!("Visit the web UI to complete initial setup");
+    }
+
     tracing::info!(
         "Server configured: {}:{}",
         config.server_host,
@@ -78,33 +108,19 @@ async fn main() -> Result<()> {
     );
     tracing::debug!("Debug mode: {:?}", config.debug_mode);
 
-    // Log auto-enable of TLS (must happen after tracing is initialized)
-    if config.is_tls_active() && !config.tls_enabled {
-        tracing::info!("TLS certificate and key provided — automatically enabling HTTPS.");
-    }
-
-    // Initialize authentication manager
-    tracing::info!("Initializing authentication...");
-    let auth_manager = Arc::new(auth::AuthManager::new(
-        config.kiro_cli_db_file.clone(),
-        config.token_refresh_threshold,
-    )?);
-
-    // Test authentication by getting a token
-    match auth_manager.get_access_token().await {
-        Ok(token) => {
-            tracing::info!(
-                "✅ Authentication successful (token: {}...)",
-                &token[..20.min(token.len())]
-            );
-        }
-        Err(e) => {
-            tracing::error!("❌ Authentication failed: {}", e);
-            tracing::warn!(
-                "Server will start but API requests will fail without valid credentials"
-            );
-        }
-    }
+    // Initialize authentication manager (only when setup is complete)
+    let auth_manager = if setup_complete_flag {
+        init_auth_from_config_db(&config, &config_db).await?
+    } else {
+        // Setup not complete — create a dummy auth manager
+        Arc::new(
+            auth::AuthManager::new_placeholder(
+                config.kiro_region.clone(),
+                config.token_refresh_threshold,
+            )
+            .context("Failed to create placeholder auth manager")?,
+        )
+    };
 
     // Initialize HTTP client
     let http_client = Arc::new(http_client::KiroHttpClient::new(
@@ -114,64 +130,73 @@ async fn main() -> Result<()> {
         config.http_request_timeout,
         config.http_max_retries,
     )?);
-    tracing::info!("✅ HTTP client initialized with connection pooling");
+    tracing::info!("HTTP client initialized with connection pooling");
 
     // Initialize model cache
     tracing::info!("Initializing model cache...");
     let model_cache = cache::ModelCache::new(3600); // 1 hour TTL
 
-    // Load models from Kiro API at startup - fail fast on errors
-    tracing::info!("Loading models from Kiro API...");
-    let models = match load_models_from_kiro(&http_client, &auth_manager, &config).await {
-        Ok(models) => models,
-        Err(e) => {
-            tracing::error!("❌ Failed to load models from Kiro API: {}", e);
-            tracing::error!("");
-            tracing::error!("🔧 Troubleshooting steps:");
-            tracing::error!("   1. Check your network connection");
-            tracing::error!("   2. Verify your Kiro CLI credentials are valid");
-            tracing::error!("   3. Try logging out and logging back in:");
-            tracing::error!("");
-            tracing::error!("      kiro-cli logout");
-            tracing::error!("      kiro-cli login");
-            tracing::error!("");
-            anyhow::bail!("Startup failed: Unable to connect to CodeWhisperer API");
+    // Load models from Kiro API at startup (only when setup is complete)
+    if setup_complete_flag {
+        tracing::info!("Loading models from Kiro API...");
+        match load_models_from_kiro(&http_client, &auth_manager, &config).await {
+            Ok(models) => {
+                tracing::info!("Models from Kiro API:");
+                for model in &models {
+                    tracing::info!(
+                        "{}",
+                        serde_json::to_string_pretty(model).unwrap_or_default()
+                    );
+                }
+
+                model_cache.update(models);
+                tracing::info!(
+                    "Loaded {} models from Kiro API",
+                    model_cache.get_all_model_ids().len()
+                );
+            }
+            Err(e) => {
+                tracing::error!("Failed to load models from Kiro API: {}", e);
+                tracing::warn!("Server will start but model list will be empty");
+            }
         }
-    };
-
-    tracing::info!("📊 Models from Kiro API:");
-    for model in &models {
-        tracing::info!(
-            "{}",
-            serde_json::to_string_pretty(model).unwrap_or_default()
-        );
+    } else {
+        tracing::info!("Skipping model loading — setup not complete");
     }
-
-    model_cache.update(models);
-    tracing::info!(
-        "✅ Loaded {} models from Kiro API",
-        model_cache.get_all_model_ids().len()
-    );
 
     // Add hidden models to cache
     add_hidden_models(&model_cache);
-    tracing::info!("✅ Added hidden models to cache");
 
     let resolver =
         resolver::ModelResolver::new(model_cache.clone(), std::collections::HashMap::new());
-    tracing::info!("✅ Model resolver initialized");
+    tracing::info!("Model resolver initialized");
 
     let metrics = Arc::new(metrics::MetricsCollector::new());
-    tracing::info!("✅ Metrics collector initialized");
+    tracing::info!("Metrics collector initialized");
+
+    // Create a separate AuthManager for AppState wrapped in tokio::sync::RwLock
+    // so it can be swapped at runtime (e.g., after re-authentication).
+    // The http_client retains its own Arc<AuthManager> for connection-level retries.
+    let app_auth_manager = if setup_complete_flag {
+        init_app_auth_from_config_db(&config, &config_db).await?
+    } else {
+        auth::AuthManager::new_placeholder(
+            config.kiro_region.clone(),
+            config.token_refresh_threshold,
+        )
+        .context("Failed to create placeholder auth manager for AppState")?
+    };
 
     let app_state = routes::AppState {
-        proxy_api_key: config.proxy_api_key.clone(),
         model_cache: model_cache.clone(),
-        auth_manager: auth_manager.clone(),
+        auth_manager: Arc::new(tokio::sync::RwLock::new(app_auth_manager)),
         http_client: http_client.clone(),
         resolver,
-        config: Arc::new(config.clone()),
+        config: Arc::new(RwLock::new(config.clone())),
+        setup_complete: Arc::clone(&setup_complete),
         metrics: Arc::clone(&metrics),
+        log_buffer: Arc::clone(&log_buffer),
+        config_db,
     };
 
     let app = build_app(app_state);
@@ -189,24 +214,18 @@ async fn main() -> Result<()> {
     let sock_addr: std::net::SocketAddr = resolved_addrs
         .next()
         .context("No resolved socket addresses for configured server host")?;
-    let protocol = if config.is_tls_active() {
-        "https"
-    } else {
-        "http"
-    };
 
-    // Build optional TLS configuration
-    let rustls_config = if config.is_tls_active() {
-        let tls_cfg = tls::TlsConfig {
-            cert_path: config.tls_cert_path.clone(),
-            key_path: config.tls_key_path.clone(),
-        };
-        let rc = tls_cfg.build_rustls_config().await?;
-        tracing::info!("🔒 TLS enabled");
-        Some(rc)
-    } else {
-        None
+    // TLS is always on — build rustls config (self-signed if no custom cert/key)
+    let tls_cfg = tls::TlsConfig {
+        cert_path: config.tls_cert_path.clone(),
+        key_path: config.tls_key_path.clone(),
     };
+    let rustls_config = tls_cfg.build_rustls_config().await?;
+    if config.has_custom_tls() {
+        tracing::info!("TLS enabled (custom certificate)");
+    } else {
+        tracing::info!("TLS enabled (self-signed certificate)");
+    }
 
     // Unified graceful shutdown via axum_server::Handle for both HTTP and HTTPS
     let handle = axum_server::Handle::new();
@@ -216,23 +235,14 @@ async fn main() -> Result<()> {
         shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
     });
 
-    // Build server future — the only difference is bind vs bind_rustls.
-    // Boxing lets us treat both paths uniformly and eliminates the 4-way branch.
+    // Build server future — always use bind_rustls (TLS is always on)
     let server_future: std::pin::Pin<
         Box<dyn std::future::Future<Output = std::io::Result<()>> + Send>,
-    > = if let Some(rustls_config) = rustls_config {
-        Box::pin(
-            axum_server::bind_rustls(sock_addr, rustls_config)
-                .handle(handle.clone())
-                .serve(app.into_make_service()),
-        )
-    } else {
-        Box::pin(
-            axum_server::bind(sock_addr)
-                .handle(handle.clone())
-                .serve(app.into_make_service()),
-        )
-    };
+    > = Box::pin(
+        axum_server::bind_rustls(sock_addr, rustls_config)
+            .handle(handle.clone())
+            .serve(app.into_make_service()),
+    );
 
     if config.dashboard {
         let dashboard_metrics = Arc::clone(&metrics);
@@ -258,14 +268,86 @@ async fn main() -> Result<()> {
         }
     } else {
         print_startup_banner(&config);
-        tracing::info!("🚀 Server listening on {}://{}", protocol, sock_addr);
+        tracing::info!("Server listening on https://{}", sock_addr);
 
         server_future.await.context("Server error")?;
     }
 
-    tracing::info!("👋 Server shutdown complete");
+    tracing::info!("Server shutdown complete");
 
     Ok(())
+}
+
+/// Initialize AuthManager from config DB (Arc-wrapped, for the http_client).
+async fn init_auth_from_config_db(
+    config: &config::Config,
+    config_db: &Option<Arc<web_ui::config_db::ConfigDb>>,
+) -> Result<Arc<auth::AuthManager>> {
+    if let Some(ref db) = config_db {
+        tracing::info!("Initializing authentication from config database...");
+        match auth::AuthManager::new(Arc::clone(db), config.token_refresh_threshold).await {
+            Ok(am) => {
+                let am = Arc::new(am);
+                match am.get_access_token().await {
+                    Ok(token) => {
+                        tracing::info!(
+                            "Authentication successful (token length: {})",
+                            token.len()
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("Authentication failed: {}", e);
+                        tracing::warn!(
+                            "Server will start but API requests will fail without valid credentials"
+                        );
+                    }
+                }
+                Ok(am)
+            }
+            Err(e) => {
+                tracing::error!("Failed to initialize auth manager: {}", e);
+                tracing::warn!("Starting with dummy auth — API requests will fail");
+                Ok(Arc::new(
+                    auth::AuthManager::new_placeholder(
+                        config.kiro_region.clone(),
+                        config.token_refresh_threshold,
+                    )
+                    .context("Failed to create fallback auth manager")?,
+                ))
+            }
+        }
+    } else {
+        Ok(Arc::new(
+            auth::AuthManager::new_placeholder(
+                config.kiro_region.clone(),
+                config.token_refresh_threshold,
+            )
+            .context("Failed to create fallback auth manager")?,
+        ))
+    }
+}
+
+/// Initialize AuthManager from config DB (unwrapped, for AppState).
+async fn init_app_auth_from_config_db(
+    config: &config::Config,
+    config_db: &Option<Arc<web_ui::config_db::ConfigDb>>,
+) -> Result<auth::AuthManager> {
+    if let Some(ref db) = config_db {
+        match auth::AuthManager::new(Arc::clone(db), config.token_refresh_threshold).await {
+            Ok(am) => Ok(am),
+            Err(_) => auth::AuthManager::new_placeholder(
+                config.kiro_region.clone(),
+                config.token_refresh_threshold,
+            )
+            .context("Failed to create fallback auth manager for AppState"),
+        }
+    } else {
+        auth::AuthManager::new_placeholder(
+            config.kiro_region.clone(),
+            config.token_refresh_threshold,
+        )
+        .context("Failed to create fallback auth manager for AppState")
+    }
 }
 
 /// Load models from Kiro API (no retries - fail fast during startup)
@@ -283,17 +365,12 @@ async fn load_models_from_kiro(
     let url = format!("https://q.{}.amazonaws.com/ListAvailableModels", region);
 
     // Build request with query parameters
-    // Note: profileArn is only needed for Kiro Desktop auth, not AWS SSO OIDC
     let req_builder = http_client
         .client()
         .get(&url)
         .query(&[("origin", "AI_EDITOR")])
         .header("Authorization", format!("Bearer {}", access_token))
         .header("Content-Type", "application/json");
-
-    // Add profileArn only if using Kiro Desktop auth (not AWS SSO)
-    // For AWS SSO OIDC (kiro-cli), profileArn is not needed
-    // TODO: Detect auth type and conditionally add profileArn
 
     let req = req_builder.build()?;
 
@@ -351,18 +428,40 @@ fn build_app(state: routes::AppState) -> axum::Router {
     // Health check routes (no auth required)
     let health_routes = routes::health_routes();
 
-    // OpenAI API routes (with auth)
-    let openai_routes = routes::openai_routes(state.clone());
+    // OpenAI API routes (with auth + setup guard)
+    let openai_routes = routes::openai_routes(state.clone()).layer(
+        axum::middleware::from_fn_with_state(state.clone(), crate::web_ui::setup_guard),
+    );
 
-    // Anthropic API routes (with auth)
-    let anthropic_routes = routes::anthropic_routes(state.clone());
+    // Anthropic API routes (with auth + setup guard)
+    let anthropic_routes = routes::anthropic_routes(state.clone()).layer(
+        axum::middleware::from_fn_with_state(state.clone(), crate::web_ui::setup_guard),
+    );
+
+    // Web UI routes
+    let web_ui = if state
+        .config
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .web_ui_enabled
+    {
+        Some(web_ui::web_ui_routes(state.clone()))
+    } else {
+        None
+    };
 
     // Combine all routes
-    Router::new()
+    let mut router = Router::new()
         .merge(health_routes)
         .merge(openai_routes)
-        .merge(anthropic_routes)
-        // Apply middleware stack: CORS → Debug → HSTS → (Auth is per-route)
+        .merge(anthropic_routes);
+
+    if let Some(ui) = web_ui {
+        router = router.merge(ui);
+    }
+
+    router
+        // Apply middleware stack: CORS -> Debug -> HSTS -> (Auth is per-route)
         .layer(middleware::cors_layer())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -379,7 +478,7 @@ fn print_startup_banner(config: &config::Config) {
     let banner = r#"
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║              🚀 Kiro Gateway - Rust Edition              ║
+║              Kiro Gateway - Rust Edition                  ║
 ║                                                           ║
 ║  OpenAI & Anthropic compatible proxy for Kiro API        ║
 ║                                                           ║
@@ -388,17 +487,14 @@ fn print_startup_banner(config: &config::Config) {
 
     println!("{}", banner);
     println!("  Version:     {}", env!("CARGO_PKG_VERSION"));
-    let protocol = if config.is_tls_active() {
-        "https"
-    } else {
-        "http"
-    };
     println!(
-        "  Server:      {}://{}:{}",
-        protocol, config.server_host, config.server_port
+        "  Server:      https://{}:{}",
+        config.server_host, config.server_port
     );
-    if config.is_tls_active() {
-        println!("  TLS:         enabled 🔒");
+    if config.has_custom_tls() {
+        println!("  TLS:         enabled (custom certificate)");
+    } else {
+        println!("  TLS:         enabled (self-signed)");
     }
     println!("  Region:      {}", config.kiro_region);
     println!("  Debug Mode:  {:?}", config.debug_mode);
@@ -412,6 +508,12 @@ fn print_startup_banner(config: &config::Config) {
         },
         config.fake_reasoning_max_tokens
     );
+    if config.web_ui_enabled {
+        println!(
+            "  Web UI:      https://{}:{}/_ui/",
+            config.server_host, config.server_port
+        );
+    }
     println!();
 }
 

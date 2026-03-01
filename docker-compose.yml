@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kiro_gateway
+      POSTGRES_USER: kiro
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kiro_secret}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kiro -d kiro_gateway"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kiro-gateway:latest
+    restart: on-failure:5
+    ports:
+      - "${SERVER_PORT:-9001}:${SERVER_PORT:-9001}"
+    env_file:
+      - .env
+    environment:
+      # These override any matching keys from .env — do not change them.
+      SERVER_HOST: "0.0.0.0"
+      DATABASE_URL: postgres://kiro:${POSTGRES_PASSWORD:-kiro_secret}@db:5432/kiro_gateway
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsk", "https://localhost:${SERVER_PORT:-9001}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  pgdata:

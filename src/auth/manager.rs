@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::credentials;
 use super::refresh;
-use super::types::{AuthType, Credentials};
+use super::types::Credentials;
+use crate::web_ui::config_db::ConfigDb;
 
 /// Authentication manager
 /// Manages token lifecycle with automatic refresh and thread-safe access
@@ -21,21 +21,18 @@ pub struct AuthManager {
     /// Token expiration time
     expires_at: Arc<RwLock<Option<DateTime<Utc>>>>,
 
-    /// Authentication type
-    auth_type: AuthType,
-
     /// HTTP client for refresh requests
     client: Client,
 
-    /// Path to SQLite database (for reload on 400 error)
-    sqlite_db: Option<PathBuf>,
+    /// Config database (for reloading credentials from PostgreSQL on 400 error)
+    config_db: Option<Arc<ConfigDb>>,
 
     /// Token refresh threshold in seconds (default: 300 = 5 minutes)
     refresh_threshold: i64,
 }
 
 impl AuthManager {
-    /// Create a new AuthManager for testing (no SQLite required)
+    /// Create a new AuthManager for testing (no database required)
     /// Available in test builds and integration tests
     #[cfg(any(test, feature = "test-utils"))]
     pub fn new_for_testing(
@@ -43,8 +40,6 @@ impl AuthManager {
         region: String,
         refresh_threshold: u64,
     ) -> Result<Self> {
-        use super::types::Credentials;
-
         let credentials = Credentials {
             refresh_token: "test-refresh-token".to_string(),
             access_token: Some(access_token.clone()),
@@ -66,27 +61,54 @@ impl AuthManager {
             credentials: Arc::new(RwLock::new(credentials)),
             access_token: Arc::new(RwLock::new(Some(access_token))),
             expires_at: Arc::new(RwLock::new(Some(Utc::now() + Duration::hours(1)))),
-            auth_type: AuthType::AwsSsoOidc,
             client,
-            sqlite_db: None,
+            config_db: None,
             refresh_threshold: refresh_threshold as i64,
         })
     }
 
-    /// Create a new AuthManager from SQLite database
-    pub fn new(sqlite_db: PathBuf, refresh_threshold: u64) -> Result<Self> {
-        // Load credentials from SQLite database
-        tracing::info!("Loading credentials from SQLite: {}", sqlite_db.display());
-        let credentials = credentials::load_from_sqlite(&sqlite_db)?;
+    /// Create a placeholder AuthManager for setup-only mode.
+    ///
+    /// This manager has no valid credentials and will fail all token requests.
+    /// Used when the gateway starts before initial setup is complete.
+    pub fn new_placeholder(region: String, refresh_threshold: u64) -> Result<Self> {
+        let credentials = Credentials {
+            refresh_token: String::new(),
+            access_token: None,
+            expires_at: None,
+            profile_arn: None,
+            region,
+            client_id: None,
+            client_secret: None,
+            sso_region: None,
+            scopes: None,
+        };
 
-        // Detect authentication type (should always be AWS SSO OIDC for kiro-cli)
-        let auth_type = credentials::detect_auth_type(&credentials);
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .context("Failed to create HTTP client")?;
 
-        // Extract initial token data
+        Ok(Self {
+            credentials: Arc::new(RwLock::new(credentials)),
+            access_token: Arc::new(RwLock::new(None)),
+            expires_at: Arc::new(RwLock::new(None)),
+            client,
+            config_db: None,
+            refresh_threshold: refresh_threshold as i64,
+        })
+    }
+
+    /// Create a new AuthManager from the gateway's config database.
+    ///
+    /// Loads credentials (refresh token + OAuth client creds) from ConfigDb.
+    pub async fn new(config_db: Arc<ConfigDb>, refresh_threshold: u64) -> Result<Self> {
+        tracing::info!("Loading credentials from database");
+        let credentials = credentials::load_from_config_db(&config_db).await?;
+
         let access_token = credentials.access_token.clone();
         let expires_at = credentials.expires_at;
 
-        // Create HTTP client with timeout
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()
@@ -96,9 +118,8 @@ impl AuthManager {
             credentials: Arc::new(RwLock::new(credentials)),
             access_token: Arc::new(RwLock::new(access_token)),
             expires_at: Arc::new(RwLock::new(expires_at)),
-            auth_type,
             client,
-            sqlite_db: Some(sqlite_db),
+            config_db: Some(config_db),
             refresh_threshold: refresh_threshold as i64,
         })
     }
@@ -131,17 +152,31 @@ impl AuthManager {
     async fn refresh_token(&self) -> Result<()> {
         tracing::debug!("Refreshing access token...");
 
-        // Get mutable access to credentials
         let mut creds = self.credentials.write().await;
 
-        // Perform refresh with retry logic
-        let token_data = refresh::refresh_with_retry(
-            &self.client,
-            self.auth_type.clone(),
-            &mut creds,
-            self.sqlite_db.as_deref(),
-        )
-        .await?;
+        // First attempt: refresh using current credentials
+        let result = refresh::refresh_aws_sso_oidc(&self.client, &creds).await;
+
+        let token_data = match result {
+            Ok(data) => data,
+            Err(e) if e.to_string().contains("400") => {
+                // On 400 error, try reloading credentials from config DB
+                if let Some(ref config_db) = self.config_db {
+                    tracing::warn!(
+                        "Token refresh failed with 400, reloading credentials from database..."
+                    );
+                    *creds = credentials::load_from_config_db(config_db)
+                        .await
+                        .context("Failed to reload credentials from database")?;
+
+                    // Retry with fresh credentials
+                    refresh::refresh_aws_sso_oidc(&self.client, &creds).await?
+                } else {
+                    return Err(e);
+                }
+            }
+            Err(e) => return Err(e),
+        };
 
         // Update stored token data
         {
@@ -230,9 +265,8 @@ mod tests {
             credentials: Arc::new(RwLock::new(creds)),
             access_token: Arc::new(RwLock::new(Some("token".to_string()))),
             expires_at: Arc::new(RwLock::new(Some(Utc::now() + Duration::seconds(600)))),
-            auth_type: AuthType::KiroDesktop,
             client: Client::new(),
-            sqlite_db: None,
+            config_db: None,
             refresh_threshold: 300,
         };
 
@@ -263,9 +297,8 @@ mod tests {
             })),
             access_token: Arc::new(RwLock::new(None)),
             expires_at: Arc::new(RwLock::new(Some(Utc::now() - Duration::seconds(60)))),
-            auth_type: AuthType::KiroDesktop,
             client: Client::new(),
-            sqlite_db: None,
+            config_db: None,
             refresh_threshold: 300,
         };
 
