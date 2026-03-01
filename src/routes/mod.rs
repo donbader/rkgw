@@ -473,20 +473,25 @@ async fn anthropic_messages_handler(
     let mut request = request;
     if state.config.truncation_recovery {
         // Convert messages to Value for injection
-        let mut msg_values: Vec<serde_json::Value> = request.messages.iter().map(|m| {
-            serde_json::json!({
-                "role": m.role,
-                "content": m.content
+        let mut msg_values: Vec<serde_json::Value> = request
+            .messages
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "role": m.role,
+                    "content": m.content
+                })
             })
-        }).collect();
+            .collect();
         crate::truncation::inject_anthropic_truncation_recovery(&mut msg_values);
         // Convert back
-        request.messages = msg_values.into_iter().map(|v| {
-            crate::models::anthropic::AnthropicMessage {
+        request.messages = msg_values
+            .into_iter()
+            .map(|v| crate::models::anthropic::AnthropicMessage {
                 role: v["role"].as_str().unwrap_or("user").to_string(),
                 content: v["content"].clone(),
-            }
-        }).collect();
+            })
+            .collect();
     }
 
     // Convert Anthropic request to Kiro format

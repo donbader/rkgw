@@ -84,6 +84,8 @@ fn create_test_app_state() -> AppState {
         tls_enabled: false,
         tls_cert_path: None,
         tls_key_path: None,
+        truncation_recovery: true,
+        allow_insecure: false,
     });
 
     let metrics = Arc::new(MetricsCollector::new());
