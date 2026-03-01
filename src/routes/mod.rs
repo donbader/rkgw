@@ -697,6 +697,7 @@ mod tests {
             tls_cert_path: None,
             tls_key_path: None,
             truncation_recovery: true,
+            allow_insecure: false,
         });
 
         let metrics = Arc::new(crate::metrics::MetricsCollector::new());

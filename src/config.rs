@@ -75,6 +75,10 @@ pub struct CliArgs {
     /// Path to TLS private key file (PEM format)
     #[arg(long, env = "TLS_KEY")]
     pub tls_key: Option<String>,
+
+    /// Allow insecure non-TLS connections on non-localhost addresses (e.g. inside Docker)
+    #[arg(long, env = "ALLOW_INSECURE", default_value = "false")]
+    pub allow_insecure: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -123,6 +127,7 @@ pub struct Config {
     pub tls_enabled: bool,
     pub tls_cert_path: Option<PathBuf>,
     pub tls_key_path: Option<PathBuf>,
+    pub allow_insecure: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -229,6 +234,7 @@ impl Config {
             tls_enabled: args.tls,
             tls_cert_path: args.tls_cert.map(|s| expand_tilde(&s)),
             tls_key_path: args.tls_key.map(|s| expand_tilde(&s)),
+            allow_insecure: args.allow_insecure,
         };
 
         Ok(config)
@@ -276,19 +282,27 @@ impl Config {
         let is_loopback = self.server_host == "127.0.0.1" || self.server_host == "::1";
 
         if !is_loopback && !self.is_tls_active() {
-            // Provide helpful hint if user specified "localhost" string
-            if self.server_host == "localhost" {
+            if self.allow_insecure {
                 tracing::warn!(
-                    "Host 'localhost' requires TLS because only IP literals (127.0.0.1, ::1) are recognized as loopback. \
-                     Use --host 127.0.0.1 for local-only access without TLS, or enable TLS with --tls flag."
+                    "⚠️  Running without TLS on non-localhost address ({}). Traffic is unencrypted. \
+                     Use only in trusted networks (e.g. Docker).",
+                    self.server_host
+                );
+            } else {
+                // Provide helpful hint if user specified "localhost" string
+                if self.server_host == "localhost" {
+                    tracing::warn!(
+                        "Host 'localhost' requires TLS because only IP literals (127.0.0.1, ::1) are recognized as loopback. \
+                         Use --host 127.0.0.1 for local-only access without TLS, or enable TLS with --tls flag."
+                    );
+                }
+
+                anyhow::bail!(
+                    "TLS is required when binding to non-localhost addresses (current: {}). \
+                     Either enable TLS with --tls flag, or bind to localhost with --host 127.0.0.1",
+                    self.server_host
                 );
             }
-
-            anyhow::bail!(
-                "TLS is required when binding to non-localhost addresses (current: {}). \
-                 Either enable TLS with --tls flag, or bind to localhost with --host 127.0.0.1",
-                self.server_host
-            );
         }
 
         Ok(())
@@ -489,6 +503,7 @@ mod tests {
             tls_enabled,
             tls_cert_path: None,
             tls_key_path: None,
+            allow_insecure: false,
         };
 
         (config, temp_file)
@@ -549,6 +564,14 @@ mod tests {
     #[test]
     fn test_validate_specific_ip_with_tls_passes() {
         let (config, _tmp) = create_test_config("192.168.1.100", true);
+        assert!(config.validate().is_ok());
+        let _ = std::fs::remove_file(_tmp);
+    }
+
+    #[test]
+    fn test_validate_0_0_0_0_without_tls_allow_insecure_passes() {
+        let (mut config, _tmp) = create_test_config("0.0.0.0", false);
+        config.allow_insecure = true;
         assert!(config.validate().is_ok());
         let _ = std::fs::remove_file(_tmp);
     }
