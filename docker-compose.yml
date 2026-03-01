@@ -5,13 +5,18 @@ services:
       - "${SERVER_PORT:-8000}:${SERVER_PORT:-8000}"
     environment:
       - PROXY_API_KEY=${PROXY_API_KEY}
-      - KIRO_CLI_DB_FILE=/data/data.sqlite3
+      - KIRO_CLI_DB_FILE=/home/kiro/.local/share/kiro-cli/data.sqlite3
       - KIRO_REGION=${KIRO_REGION:-us-east-1}
+      - KIRO_SSO_URL=${KIRO_SSO_URL:-}
+      - KIRO_SSO_REGION=${KIRO_SSO_REGION:-}
       - SERVER_HOST=${SERVER_HOST:-0.0.0.0}
       - SERVER_PORT=${SERVER_PORT:-8000}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - DEBUG_MODE=${DEBUG_MODE:-off}
       - TLS_ENABLED=${TLS_ENABLED:-false}
     volumes:
-      - ${KIRO_CLI_DB_FILE:-~/.local/share/kiro-cli/data.sqlite3}:/data/data.sqlite3:ro
+      - kiro-data:/home/kiro/.local/share/kiro-cli
     restart: unless-stopped
+
+volumes:
+  kiro-data:
