@@ -41,7 +41,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /app/target/release/kiro-gateway /usr/local/bin/kiro-gateway
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-RUN useradd --create-home --shell /bin/bash kiro
+RUN useradd --create-home --shell /bin/bash kiro && \
+    mkdir -p /home/kiro/.local/share/kiro-cli && \
+    chown -R kiro:kiro /home/kiro/.local
 USER kiro
 WORKDIR /home/kiro
 
