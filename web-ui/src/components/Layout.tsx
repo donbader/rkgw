@@ -1,13 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
+
+function formatUptime(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
 
 export function Layout() {
   const [connected, setConnected] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [uptime, setUptime] = useState(0)
   const location = useLocation()
 
-  const pageTitle = location.pathname.includes('/config') ? 'Configuration' : 'Dashboard'
+  useEffect(() => {
+    const id = setInterval(() => setUptime(s => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const pageTitle = location.pathname.includes('/config') ? 'configuration' : 'dashboard'
 
   return (
     <div className="shell">
@@ -26,7 +39,12 @@ export function Layout() {
               <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
             </svg>
           </button>
-          <span className="page-title">{pageTitle}</span>
+          <span className="page-title">{'> '}{pageTitle}<span className="cursor" /></span>
+        </div>
+        <div className="top-bar-info">
+          <span>up {formatUptime(uptime)}</span>
+          <span>v1.0.8</span>
+          <span className={connected ? 'tag-ok' : 'tag-err'}>{connected ? 'STREAM' : 'STREAM'}</span>
         </div>
       </header>
       <main className="main">

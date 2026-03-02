@@ -82,6 +82,7 @@ export function Dashboard() {
 
   return (
     <>
+      <div className="section-header">SYSTEM</div>
       <div className="metrics-grid">
         <MetricCard
           label="Active Connections"
@@ -103,17 +104,18 @@ export function Dashboard() {
         />
       </div>
 
+      <div className="section-header">TRAFFIC</div>
       <div className="two-col">
         <div className="card">
           <div className="card-header">
-            <span className="card-title">Request Rate</span>
+            <span className="card-title">{'> '}request rate</span>
             <span className="card-subtitle">req/s</span>
           </div>
           <Sparkline data={state.sparkData} />
         </div>
         <div className="card">
           <div className="card-header">
-            <span className="card-title">Latency Percentiles</span>
+            <span className="card-title">{'> '}latency percentiles</span>
           </div>
           <div className="latency-grid">
             <div className="latency-cell">
@@ -132,23 +134,26 @@ export function Dashboard() {
         </div>
       </div>
 
+      <div className="section-header">MODELS</div>
       <div className="card mb-24">
         <div className="card-header">
-          <span className="card-title">Model Stats</span>
+          <span className="card-title">{'> '}model stats</span>
         </div>
         <ModelTable models={state.models || []} />
       </div>
 
+      <div className="section-header">ERRORS</div>
       <div className="card mb-24">
         <div className="card-header">
-          <span className="card-title">Errors</span>
+          <span className="card-title">{'> '}errors</span>
         </div>
         <ErrorsPanel errors={state.errors} />
       </div>
 
+      <div className="section-header">LOGS</div>
       <div className="card">
         <div className="card-header">
-          <span className="card-title">Live Logs</span>
+          <span className="card-title">{'> '}live logs</span>
         </div>
         <LogViewer />
       </div>

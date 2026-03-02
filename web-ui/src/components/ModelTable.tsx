@@ -17,18 +17,19 @@ export function ModelTable({ models }: ModelTableProps) {
     <table className="data-table">
       <thead>
         <tr>
-          <th>Model</th>
-          <th>Requests</th>
-          <th>Avg Latency</th>
-          <th>Input Tokens</th>
-          <th>Output Tokens</th>
+          <th>MODEL</th>
+          <th>REQ</th>
+          <th>AVG LAT</th>
+          <th>IN TOK</th>
+          <th>OUT TOK</th>
         </tr>
       </thead>
       <tbody>
         {models.length === 0 ? (
           <tr>
-            <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: 24 }}>
-              Waiting for data&hellip;
+            <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: 20 }}>
+              {'> waiting for data'}
+              <span className="cursor" />
             </td>
           </tr>
         ) : (

@@ -1,71 +1,110 @@
-import { useRef, useEffect } from 'react'
+import { useMemo } from 'react'
 
 interface SparklineProps {
   data: number[]
 }
 
 export function Sparkline({ data }: SparklineProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  if (data.length < 2) {
+    return (
+      <div className="spark-empty">
+        {'> waiting for data'}
+        <span className="cursor" />
+      </div>
+    )
+  }
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || data.length < 2) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const dpr = window.devicePixelRatio || 1
-    const w = canvas.offsetWidth
-    const h = canvas.offsetHeight
-    canvas.width = w * dpr
-    canvas.height = h * dpr
-    ctx.scale(dpr, dpr)
-    ctx.clearRect(0, 0, w, h)
-
+  const { path, areaPath, max, latest, points } = useMemo(() => {
     const max = Math.max(...data) || 1
-    const step = w / (data.length - 1)
+    const w = 100
+    const h = 40
+    const pad = 1
+    const latest = data[data.length - 1]
 
-    // Grid lines
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)'
-    ctx.lineWidth = 1
-    for (let g = 1; g < 4; g++) {
-      const gy = (h / 4) * g
-      ctx.beginPath()
-      ctx.moveTo(0, gy)
-      ctx.lineTo(w, gy)
-      ctx.stroke()
+    const pts = data.map((v, i) => ({
+      x: pad + (i / (data.length - 1)) * (w - pad * 2),
+      y: pad + (1 - v / max) * (h - pad * 2),
+    }))
+
+    // Smooth curve through points using catmull-rom → cubic bezier
+    let d = `M${pts[0].x},${pts[0].y}`
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)]
+      const p1 = pts[i]
+      const p2 = pts[i + 1]
+      const p3 = pts[Math.min(pts.length - 1, i + 2)]
+
+      const cp1x = p1.x + (p2.x - p0.x) / 6
+      const cp1y = p1.y + (p2.y - p0.y) / 6
+      const cp2x = p2.x - (p3.x - p1.x) / 6
+      const cp2y = p2.y - (p3.y - p1.y) / 6
+
+      d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`
     }
 
-    // Line
-    ctx.beginPath()
-    for (let i = 0; i < data.length; i++) {
-      const x = i * step
-      const y = h - (data[i] / max) * (h - 10) - 5
-      if (i === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    }
-    ctx.strokeStyle = '#e8a230'
-    ctx.lineWidth = 2
-    ctx.lineJoin = 'round'
-    ctx.stroke()
+    const area = `${d} L${pts[pts.length - 1].x},${h} L${pts[0].x},${h} Z`
 
-    // Gradient fill
-    ctx.lineTo((data.length - 1) * step, h)
-    ctx.lineTo(0, h)
-    ctx.closePath()
-    const grad = ctx.createLinearGradient(0, 0, 0, h)
-    grad.addColorStop(0, 'rgba(232,162,48,0.2)')
-    grad.addColorStop(1, 'rgba(232,162,48,0)')
-    ctx.fillStyle = grad
-    ctx.fill()
-
-    // Endpoint dot
-    const lastX = (data.length - 1) * step
-    const lastY = h - (data[data.length - 1] / max) * (h - 10) - 5
-    ctx.beginPath()
-    ctx.arc(lastX, lastY, 3, 0, Math.PI * 2)
-    ctx.fillStyle = '#e8a230'
-    ctx.fill()
+    return { path: d, areaPath: area, max, latest, points: pts }
   }, [data])
 
-  return <canvas ref={canvasRef} style={{ width: '100%', height: 100, display: 'block' }} />
+  const lastPt = points[points.length - 1]
+
+  return (
+    <div className="spark-wrap" title={`latest: ${latest}`}>
+      <svg
+        viewBox="0 0 100 40"
+        preserveAspectRatio="none"
+        className="spark-svg"
+      >
+        <defs>
+          <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--green)" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="var(--green)" stopOpacity="0" />
+          </linearGradient>
+          <filter id="sparkGlow">
+            <feGaussianBlur stdDeviation="1.2" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* Grid lines */}
+        {[0.25, 0.5, 0.75].map(f => (
+          <line
+            key={f}
+            x1="0" y1={40 * f} x2="100" y2={40 * f}
+            stroke="var(--border-subtle)"
+            strokeWidth="0.3"
+            strokeDasharray="1 2"
+          />
+        ))}
+
+        {/* Area fill */}
+        <path d={areaPath} fill="url(#sparkGrad)" />
+
+        {/* Line */}
+        <path
+          d={path}
+          fill="none"
+          stroke="var(--green)"
+          strokeWidth="1"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          filter="url(#sparkGlow)"
+          className="spark-line"
+        />
+
+        {/* Latest point pulse */}
+        <circle cx={lastPt.x} cy={lastPt.y} r="2.5" fill="var(--green)" opacity="0.3" className="spark-pulse" />
+        <circle cx={lastPt.x} cy={lastPt.y} r="1.2" fill="var(--green)" />
+      </svg>
+
+      <div className="spark-meta">
+        <span className="spark-latest">{latest.toFixed(1)}</span>
+        <span className="spark-max">peak {max.toFixed(1)}</span>
+      </div>
+    </div>
+  )
 }

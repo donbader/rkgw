@@ -2,23 +2,69 @@
 
 body {
   background: var(--bg);
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
   color: var(--text);
   line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
+/* Scanline overlay */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
-  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Vignette + dot-grid */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 50%, transparent 60%, rgba(0, 0, 0, 0.5) 100%),
+    radial-gradient(circle 1px at center, rgba(74, 222, 128, 0.03) 0%, transparent 100%);
+  background-size: 100% 100%, 20px 20px;
   pointer-events: none;
   z-index: 0;
 }
 
-::-webkit-scrollbar { width: 6px; }
+/* Blinking cursor class */
+.cursor::after {
+  content: '\2588';
+  animation: blink 1s step-end infinite;
+  color: var(--green);
+  margin-left: 2px;
+  text-shadow: var(--glow-sm);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Glow hover */
+.glow:hover {
+  text-shadow: 0 0 8px rgba(74, 222, 128, 0.4);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--green-dim); }
+
+/* Selection */
+::selection {
+  background: rgba(74, 222, 128, 0.2);
+  color: var(--green);
+}

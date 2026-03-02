@@ -8,6 +8,12 @@ interface LogEntry {
 }
 
 const LEVELS = ['ALL', 'INFO', 'WARN', 'ERROR'] as const
+const LEVEL_LABELS: Record<string, string> = {
+  ALL: '[ALL]',
+  INFO: '[INFO]',
+  WARN: '[WARN]',
+  ERROR: '[ERR]',
+}
 
 export function LogViewer() {
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -42,14 +48,16 @@ export function LogViewer() {
   return (
     <>
       <div className="log-toolbar">
-        <input
-          type="text"
-          className="log-search"
-          placeholder="Filter logs..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          aria-label="Search logs"
-        />
+        <div className="prompt-input-wrap">
+          <input
+            type="text"
+            className="log-search"
+            placeholder="grep..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            aria-label="Search logs"
+          />
+        </div>
         <div className="pill-group">
           {LEVELS.map(level => (
             <button
@@ -57,7 +65,7 @@ export function LogViewer() {
               className={`pill${filter === level ? ' active' : ''}`}
               onClick={() => setFilter(level)}
             >
-              {level === 'ALL' ? 'All' : level.charAt(0) + level.slice(1).toLowerCase()}
+              {LEVEL_LABELS[level]}
             </button>
           ))}
         </div>
@@ -65,12 +73,13 @@ export function LogViewer() {
           className={`log-toggle${autoScroll ? ' on' : ''}`}
           onClick={() => setAutoScroll(v => !v)}
         >
-          Auto-scroll
+          [tail -f]
         </button>
       </div>
       <div className="log-stream" ref={containerRef} role="log" aria-live="polite">
         {visible.map((entry, i) => (
           <div key={i} className={`log-line level-${entry.level}`}>
+            <span className="log-line-prompt">$</span>
             {entry.timestamp} [{entry.level}] {entry.message}
           </div>
         ))}
