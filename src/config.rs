@@ -1,53 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
-use std::io::IsTerminal;
 use std::path::PathBuf;
-// PathBuf is still needed for tls_cert_path / tls_key_path and expand_tilde().
-
-/// Kiro Gateway - Rust Implementation
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-pub struct CliArgs {
-    /// Server host/bind address
-    #[arg(long, env = "SERVER_HOST", default_value = "127.0.0.1")]
-    pub host: String,
-
-    /// Server port
-    #[arg(short, long, env = "SERVER_PORT", default_value = "8000")]
-    pub port: u16,
-
-    /// PostgreSQL database URL for config persistence
-    #[arg(long, env = "DATABASE_URL")]
-    pub database_url: Option<String>,
-
-    /// Path to TLS certificate file (PEM format)
-    #[arg(long, env = "TLS_CERT")]
-    pub tls_cert: Option<String>,
-
-    /// Path to TLS private key file (PEM format)
-    #[arg(long, env = "TLS_KEY")]
-    pub tls_key: Option<String>,
-
-    /// Enable web UI dashboard (served at /_ui/)
-    #[arg(long, env = "WEB_UI", default_value = "true")]
-    pub web_ui: bool,
-
-    /// Enable monitoring dashboard TUI
-    #[arg(long, default_value = "false")]
-    pub dashboard: bool,
-
-    /// Google OAuth Client ID (required when web UI enabled)
-    #[arg(long, env = "GOOGLE_CLIENT_ID", default_value = "")]
-    pub google_client_id: String,
-
-    /// Google OAuth Client Secret
-    #[arg(long, env = "GOOGLE_CLIENT_SECRET", default_value = "")]
-    pub google_client_secret: String,
-
-    /// Google OAuth Callback URL (required when GOOGLE_CLIENT_ID is set)
-    #[arg(long, env = "GOOGLE_CALLBACK_URL", default_value = "")]
-    pub google_callback_url: String,
-}
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -84,15 +36,9 @@ pub struct Config {
     // Truncation recovery
     pub truncation_recovery: bool,
 
-    // Dashboard
-    pub dashboard: bool,
-
     // TLS (always on — self-signed cert generated when no custom cert/key provided)
     pub tls_cert_path: Option<PathBuf>,
     pub tls_key_path: Option<PathBuf>,
-
-    // Web UI
-    pub web_ui_enabled: bool,
 
     // Database
     pub database_url: Option<String>,
@@ -126,7 +72,7 @@ impl Config {
     /// The DB overlay (`load_into_config`) fills in real values once setup is complete.
     pub fn with_defaults() -> Self {
         Config {
-            server_host: "127.0.0.1".to_string(),
+            server_host: "0.0.0.0".to_string(),
             server_port: 8000,
             kiro_region: "us-east-1".to_string(),
             streaming_timeout: 300,
@@ -143,10 +89,8 @@ impl Config {
             fake_reasoning_max_tokens: 4000,
             fake_reasoning_handling: FakeReasoningHandling::AsReasoningContent,
             truncation_recovery: true,
-            dashboard: false,
             tls_cert_path: None,
             tls_key_path: None,
-            web_ui_enabled: true,
             database_url: None,
             google_client_id: String::new(),
             google_client_secret: String::new(),
@@ -154,76 +98,54 @@ impl Config {
         }
     }
 
-    /// Load configuration from bootstrap CLI args only.
-    ///
-    /// Returns a Config with defaults for all DB-managed fields.
-    /// Call `config_db.load_into_config()` afterwards to overlay persisted values.
+    /// Load configuration from environment variables only (docker-compose deployment).
     pub fn load() -> Result<Self> {
         // Load .env file if it exists
         dotenvy::dotenv().ok();
 
-        // Warn about deprecated env vars that are now managed via Web UI
-        for (var, name) in [
-            ("PROXY_API_KEY", "proxy API key"),
-            ("KIRO_REGION", "Kiro region"),
-            ("LOG_LEVEL", "log level"),
-            ("DEBUG_MODE", "debug mode"),
-        ] {
-            if std::env::var(var).is_ok() {
-                tracing::warn!(
-                    "{} env var is set but no longer read at startup. Configure {} via the Web UI at /_ui/ instead.",
-                    var, name
-                );
-            }
-        }
-
-        // Parse CLI arguments (bootstrap-only subset)
-        let args = CliArgs::parse();
-
         let mut config = Self::with_defaults();
 
-        // Apply bootstrap CLI / env overrides
-        config.server_host = args.host;
-        config.server_port = args.port;
-        config.dashboard = args.dashboard;
-        config.web_ui_enabled = args.web_ui;
-        config.tls_cert_path = args.tls_cert.map(|s| expand_tilde(&s));
-        config.tls_key_path = args.tls_key.map(|s| expand_tilde(&s));
+        // Server
+        if let Ok(v) = std::env::var("SERVER_HOST") {
+            config.server_host = v;
+        }
+        if let Ok(v) = std::env::var("SERVER_PORT") {
+            config.server_port = v
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid SERVER_PORT"))?;
+        }
 
-        config.database_url = args.database_url;
+        // Database
+        config.database_url = std::env::var("DATABASE_URL").ok();
 
-        config.google_client_id = args.google_client_id;
-        config.google_client_secret = args.google_client_secret;
-        config.google_callback_url = args.google_callback_url;
+        // TLS
+        config.tls_cert_path = std::env::var("TLS_CERT").ok().map(|s| expand_tilde(&s));
+        config.tls_key_path = std::env::var("TLS_KEY").ok().map(|s| expand_tilde(&s));
+
+        // Google SSO
+        config.google_client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_default();
+        config.google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default();
+        config.google_callback_url = std::env::var("GOOGLE_CALLBACK_URL").unwrap_or_default();
 
         Ok(config)
     }
 
-    /// Validate configuration (bootstrap-level checks only).
-    ///
-    /// DB-managed fields (region, etc.) are NOT validated here
-    /// because the gateway may be starting in setup mode with no config yet.
+    /// Validate configuration.
     pub fn validate(&self) -> Result<()> {
-        if self.dashboard && !std::io::stdout().is_terminal() {
+        // Google SSO is the only auth path — required for the web UI
+        if self.google_client_id.is_empty() {
             anyhow::bail!(
-                "--dashboard requires a terminal (TTY). Cannot run dashboard mode when stdout is not a terminal."
-            );
-        }
-
-        // Validate Google SSO configuration
-        if self.web_ui_enabled && self.google_client_id.is_empty() {
-            anyhow::bail!(
-                "GOOGLE_CLIENT_ID is required when web UI is enabled. \
+                "GOOGLE_CLIENT_ID is required. \
                  Google SSO is the only auth path — the gateway is unusable without it."
             );
         }
-        if !self.google_client_id.is_empty() && self.google_callback_url.is_empty() {
+        if self.google_callback_url.is_empty() {
             anyhow::bail!(
                 "GOOGLE_CALLBACK_URL is required when GOOGLE_CLIENT_ID is set. \
                  No default is provided because SERVER_HOST=0.0.0.0 in Docker makes any auto-derived default broken."
             );
         }
-        if !self.google_client_id.is_empty() && self.google_client_secret.is_empty() {
+        if self.google_client_secret.is_empty() {
             anyhow::bail!("GOOGLE_CLIENT_SECRET is required when GOOGLE_CLIENT_ID is set.");
         }
 
@@ -231,7 +153,7 @@ impl Config {
         if let Some(ref cert) = self.tls_cert_path {
             if self.tls_key_path.is_none() {
                 anyhow::bail!(
-                    "--tls-cert was provided without --tls-key. Both are required when using custom certificates."
+                    "TLS_CERT was provided without TLS_KEY. Both are required when using custom certificates."
                 );
             }
             if !cert.exists() {
@@ -241,7 +163,7 @@ impl Config {
         if let Some(ref key) = self.tls_key_path {
             if self.tls_cert_path.is_none() {
                 anyhow::bail!(
-                    "--tls-key was provided without --tls-cert. Both are required when using custom certificates."
+                    "TLS_KEY was provided without TLS_CERT. Both are required when using custom certificates."
                 );
             }
             if !key.exists() {
@@ -311,7 +233,6 @@ mod tests {
 
     #[test]
     fn test_expand_tilde_just_tilde() {
-        // Just "~" without slash should not expand
         let path = expand_tilde("~");
         assert_eq!(path, PathBuf::from("~"));
     }
@@ -410,21 +331,10 @@ mod tests {
         assert_ne!(FakeReasoningHandling::Remove, FakeReasoningHandling::Pass);
     }
 
-    /// Create a test config with Google SSO fields populated so validation passes.
-    fn create_test_config(server_host: &str) -> Config {
-        Config {
-            server_host: server_host.to_string(),
-            google_client_id: "test-client-id".to_string(),
-            google_client_secret: "test-client-secret".to_string(),
-            google_callback_url: "http://localhost:8000/_ui/api/auth/google/callback".to_string(),
-            ..Config::with_defaults()
-        }
-    }
-
     #[test]
     fn test_with_defaults() {
         let config = Config::with_defaults();
-        assert_eq!(config.server_host, "127.0.0.1");
+        assert_eq!(config.server_host, "0.0.0.0");
         assert_eq!(config.server_port, 8000);
         assert_eq!(config.kiro_region, "us-east-1");
         assert_eq!(config.debug_mode, DebugMode::Off);
@@ -438,22 +348,8 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_any_host_passes() {
-        // TLS is always on, so any host should pass validation
-        for host in &["127.0.0.1", "::1", "0.0.0.0", "192.168.1.100", "localhost"] {
-            let config = create_test_config(host);
-            assert!(
-                config.validate().is_ok(),
-                "validate() failed for host '{}'",
-                host
-            );
-        }
-    }
-
-    #[test]
-    fn test_validate_google_client_id_required_when_web_ui_enabled() {
+    fn test_validate_google_client_id_required() {
         let config = Config {
-            web_ui_enabled: true,
             google_client_id: String::new(),
             ..Config::with_defaults()
         };
@@ -465,7 +361,6 @@ mod tests {
     #[test]
     fn test_validate_google_callback_url_required() {
         let config = Config {
-            web_ui_enabled: true,
             google_client_id: "some-id".to_string(),
             google_client_secret: "some-secret".to_string(),
             google_callback_url: String::new(),
@@ -482,7 +377,6 @@ mod tests {
     #[test]
     fn test_validate_google_secret_required() {
         let config = Config {
-            web_ui_enabled: true,
             google_client_id: "some-id".to_string(),
             google_client_secret: String::new(),
             google_callback_url: "http://localhost:8000/callback".to_string(),
@@ -494,16 +388,6 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("GOOGLE_CLIENT_SECRET"));
-    }
-
-    #[test]
-    fn test_validate_google_not_required_when_web_ui_disabled() {
-        let config = Config {
-            web_ui_enabled: false,
-            google_client_id: String::new(),
-            ..Config::with_defaults()
-        };
-        assert!(config.validate().is_ok());
     }
 
     #[test]

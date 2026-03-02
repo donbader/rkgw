@@ -1155,10 +1155,7 @@ mod tests {
     }
 
     fn create_test_config() -> Config {
-        Config {
-            web_ui_enabled: false,
-            ..Config::with_defaults()
-        }
+        Config::with_defaults()
     }
 
     #[tokio::test]

@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
-use std::io;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -8,9 +7,9 @@ mod auth;
 mod cache;
 mod config;
 mod converters;
-mod dashboard;
 mod error;
 mod http_client;
+mod log_capture;
 mod metrics;
 mod middleware;
 mod models;
@@ -27,37 +26,27 @@ mod web_ui;
 #[tokio::main]
 async fn main() -> Result<()> {
     // Install the rustls crypto provider before any TLS operations.
-    // Both `ring` and `aws-lc-rs` can end up compiled via transitive deps;
-    // an explicit install prevents the runtime auto-detection panic.
-    // If a provider is already installed, that's fine - we can continue.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // Load bootstrap configuration from CLI args (minimal subset)
+    // Load bootstrap configuration from environment variables
     let mut config = config::Config::load()?;
     config.validate()?;
 
     let log_buffer = Arc::new(Mutex::new(VecDeque::new()));
 
+    // Set up logging with capture layer for web UI SSE log streaming
     let log_level = config.log_level.to_lowercase();
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level));
 
-    if config.dashboard || config.web_ui_enabled {
+    {
         use tracing_subscriber::prelude::*;
 
-        let dashboard_layer = dashboard::log_layer::DashboardLayer::new(Arc::clone(&log_buffer));
+        let capture_layer = log_capture::LogCaptureLayer::new(Arc::clone(&log_buffer));
 
         tracing_subscriber::registry()
             .with(env_filter)
-            .with(dashboard_layer)
-            .init();
-    } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .with_target(false)
-            .with_thread_ids(false)
-            .with_file(true)
-            .with_line_number(true)
+            .with(capture_layer)
             .init();
     }
 
@@ -112,7 +101,6 @@ async fn main() -> Result<()> {
     let auth_manager = if setup_complete_flag {
         init_auth_from_config_db(&config, &config_db).await?
     } else {
-        // Setup not complete — create a dummy auth manager
         Arc::new(
             auth::AuthManager::new_placeholder(
                 config.kiro_region.clone(),
@@ -174,8 +162,6 @@ async fn main() -> Result<()> {
     tracing::info!("Metrics collector initialized");
 
     // Create a separate AuthManager for AppState wrapped in tokio::sync::RwLock
-    // so it can be swapped at runtime (e.g., after re-authentication).
-    // The http_client retains its own Arc<AuthManager> for connection-level retries.
     let app_auth_manager = if setup_complete_flag {
         init_app_auth_from_config_db(&config, &config_db).await?
     } else {
@@ -240,7 +226,7 @@ async fn main() -> Result<()> {
         tracing::info!("TLS enabled (self-signed certificate)");
     }
 
-    // Unified graceful shutdown via axum_server::Handle for both HTTP and HTTPS
+    // Unified graceful shutdown via axum_server::Handle
     let handle = axum_server::Handle::new();
     let shutdown_handle = handle.clone();
     tokio::spawn(async move {
@@ -248,43 +234,14 @@ async fn main() -> Result<()> {
         shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
     });
 
-    // Build server future — always use bind_rustls (TLS is always on)
-    let server_future: std::pin::Pin<
-        Box<dyn std::future::Future<Output = std::io::Result<()>> + Send>,
-    > = Box::pin(
-        axum_server::bind_rustls(sock_addr, rustls_config)
-            .handle(handle.clone())
-            .serve(app.into_make_service()),
-    );
+    print_startup_banner(&config);
+    tracing::info!("Server listening on https://{}", sock_addr);
 
-    if config.dashboard {
-        let dashboard_metrics = Arc::clone(&metrics);
-        let dashboard_log_buffer = Arc::clone(&log_buffer);
-        let dashboard_shutdown = handle.clone();
-
-        let dashboard_handle = tokio::spawn(async move {
-            if let Err(e) = run_dashboard(dashboard_metrics, dashboard_log_buffer).await {
-                eprintln!("Dashboard error: {}", e);
-            }
-            dashboard_shutdown.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
-        });
-
-        tokio::select! {
-            result = server_future => {
-                if let Err(e) = result {
-                    tracing::error!("Server error: {}", e);
-                }
-            }
-            _ = dashboard_handle => {
-                tracing::info!("Dashboard closed, shutting down server...");
-            }
-        }
-    } else {
-        print_startup_banner(&config);
-        tracing::info!("Server listening on https://{}", sock_addr);
-
-        server_future.await.context("Server error")?;
-    }
+    axum_server::bind_rustls(sock_addr, rustls_config)
+        .handle(handle)
+        .serve(app.into_make_service())
+        .await
+        .context("Server error")?;
 
     tracing::info!("Server shutdown complete");
 
@@ -366,15 +323,11 @@ async fn load_models_from_kiro(
     auth_manager: &auth::AuthManager,
     _config: &config::Config,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
-    // Get access token
     let access_token = auth_manager.get_access_token().await?;
     let region = auth_manager.get_region().await;
 
-    // Build request to list models - use Q API endpoint, not CodeWhisperer
-    // Correct endpoint: https://q.{region}.amazonaws.com/ListAvailableModels
     let url = format!("https://q.{}.amazonaws.com/ListAvailableModels", region);
 
-    // Build request with query parameters
     let req_builder = http_client
         .client()
         .get(&url)
@@ -383,15 +336,10 @@ async fn load_models_from_kiro(
         .header("Content-Type", "application/json");
 
     let req = req_builder.build()?;
-
-    // Execute request WITHOUT retries (fail fast during startup)
     let response = http_client.request_no_retry(req).await?;
-
-    // Parse response
     let body = response.text().await?;
     let json: serde_json::Value = serde_json::from_str(&body)?;
 
-    // Extract models from response
     if let Some(models) = json.get("models").and_then(|v| v.as_array()) {
         Ok(models.clone())
     } else {
@@ -401,7 +349,6 @@ async fn load_models_from_kiro(
 
 /// Add hidden models to cache
 fn add_hidden_models(cache: &cache::ModelCache) {
-    // Add commonly used model aliases that may not be in the API response
     let hidden_models = vec![
         (
             "claude-3-5-sonnet-20241022",
@@ -435,43 +382,23 @@ fn add_hidden_models(cache: &cache::ModelCache) {
 fn build_app(state: routes::AppState) -> axum::Router {
     use axum::Router;
 
-    // Health check routes (no auth required)
     let health_routes = routes::health_routes();
 
-    // OpenAI API routes (with auth + setup guard)
     let openai_routes = routes::openai_routes(state.clone()).layer(
         axum::middleware::from_fn_with_state(state.clone(), crate::web_ui::setup_guard),
     );
 
-    // Anthropic API routes (with auth + setup guard)
     let anthropic_routes = routes::anthropic_routes(state.clone()).layer(
         axum::middleware::from_fn_with_state(state.clone(), crate::web_ui::setup_guard),
     );
 
-    // Web UI routes
-    let web_ui = if state
-        .config
-        .read()
-        .unwrap_or_else(|p| p.into_inner())
-        .web_ui_enabled
-    {
-        Some(web_ui::web_ui_routes(state.clone()))
-    } else {
-        None
-    };
+    let web_ui = web_ui::web_ui_routes(state.clone());
 
-    // Combine all routes
-    let mut router = Router::new()
+    Router::new()
         .merge(health_routes)
         .merge(openai_routes)
-        .merge(anthropic_routes);
-
-    if let Some(ui) = web_ui {
-        router = router.merge(ui);
-    }
-
-    router
-        // Apply middleware stack: CORS -> Debug -> HSTS -> (Auth is per-route)
+        .merge(anthropic_routes)
+        .merge(web_ui)
         .layer(middleware::cors_layer())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -518,12 +445,10 @@ fn print_startup_banner(config: &config::Config) {
         },
         config.fake_reasoning_max_tokens
     );
-    if config.web_ui_enabled {
-        println!(
-            "  Web UI:      https://{}:{}/_ui/",
-            config.server_host, config.server_port
-        );
-    }
+    println!(
+        "  Web UI:      https://{}:{}/_ui/",
+        config.server_host, config.server_port
+    );
     println!();
 }
 
@@ -556,90 +481,4 @@ async fn shutdown_signal() {
             tracing::info!("Received terminate signal, initiating graceful shutdown...");
         },
     }
-}
-
-async fn run_dashboard(
-    metrics: Arc<metrics::MetricsCollector>,
-    log_buffer: Arc<Mutex<VecDeque<dashboard::app::LogEntry>>>,
-) -> io::Result<()> {
-    use crossterm::{
-        execute,
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    };
-    use ratatui::prelude::*;
-
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    let mut app = dashboard::DashboardApp::new(metrics, log_buffer.clone());
-    let mut was_visible = true;
-
-    let original_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen);
-        original_hook(panic_info);
-    }));
-
-    loop {
-        if app.dashboard_visible != was_visible {
-            if app.dashboard_visible {
-                enable_raw_mode()?;
-                execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-                terminal.clear()?;
-            } else {
-                execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                disable_raw_mode()?;
-                println!("\n--- Dashboard hidden. Press 'd' to show, 'q' to quit ---\n");
-
-                if let Ok(logs) = log_buffer.lock() {
-                    for entry in logs.iter().rev().take(20).rev() {
-                        println!(
-                            "[{}] {:5} {}",
-                            entry.timestamp.format("%H:%M:%S"),
-                            entry.level,
-                            entry.message
-                        );
-                    }
-                }
-            }
-            was_visible = app.dashboard_visible;
-        }
-
-        app.refresh_system_info();
-        app.metrics.cleanup_old_samples();
-
-        if app.dashboard_visible {
-            terminal.draw(|frame| {
-                dashboard::ui::render(frame, &app);
-            })?;
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-
-        if !app.dashboard_visible {
-            enable_raw_mode()?;
-        }
-
-        dashboard::event_handler::handle_events(&mut app)?;
-
-        if !app.dashboard_visible {
-            disable_raw_mode()?;
-        }
-
-        if app.should_quit {
-            break;
-        }
-    }
-
-    if app.dashboard_visible {
-        disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    }
-    terminal.show_cursor()?;
-
-    Ok(())
 }

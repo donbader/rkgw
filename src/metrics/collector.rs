@@ -2,14 +2,11 @@ use dashmap::DashMap;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use uuid::Uuid;
 
 /// Ring buffer capacity for samples (15 minutes at ~4 samples/sec)
 const RING_BUFFER_CAPACITY: usize = 3600;
-
-/// Maximum age for samples (15 minutes)
-const MAX_SAMPLE_AGE: Duration = Duration::from_secs(15 * 60);
 
 /// Per-model statistics
 #[derive(Debug)]
@@ -345,34 +342,6 @@ impl MetricsCollector {
             "models": model_stats,
             "errors_by_type": errors,
         })
-    }
-
-    /// Clean up old samples (older than 15 minutes)
-    pub fn cleanup_old_samples(&self) {
-        let now = Instant::now();
-        let cutoff = now - MAX_SAMPLE_AGE;
-
-        if let Ok(mut samples) = self.latency_samples.lock() {
-            samples.retain(|(time, _)| *time >= cutoff);
-        }
-
-        if let Ok(mut samples) = self.request_rate_samples.lock() {
-            samples.retain(|(time, _)| *time >= cutoff);
-        }
-
-        if let Ok(mut counts) = self.token_counts.lock() {
-            counts.retain(|(time, _, _)| *time >= cutoff);
-        }
-    }
-
-    /// Get request rate history for sparkline display
-    pub fn get_request_rate_history(&self) -> Vec<u64> {
-        let samples = match self.request_rate_samples.lock() {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
-
-        samples.iter().map(|(_, count)| *count).collect()
     }
 }
 

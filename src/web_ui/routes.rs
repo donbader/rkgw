@@ -200,7 +200,6 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
             "fake_reasoning_max_tokens": config.fake_reasoning_max_tokens,
             "truncation_recovery": config.truncation_recovery,
             "tool_description_max_length": config.tool_description_max_length,
-            "dashboard": config.dashboard,
         }
     }))
 }

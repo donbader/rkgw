@@ -5,23 +5,26 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::Layer;
 
-use super::app::LogEntry;
+/// A captured log entry for the web UI live-log stream.
+#[derive(Clone, Debug)]
+pub struct LogEntry {
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub level: tracing::Level,
+    pub message: String,
+}
 
-/// Maximum number of log entries to keep in buffer
+/// Maximum number of log entries to keep in buffer.
 const DEFAULT_BUFFER_CAPACITY: usize = 1000;
 
 /// Custom tracing layer that captures log events to a shared buffer
-pub struct DashboardLayer {
-    /// Shared buffer for log entries
+/// so the web UI can stream them via SSE.
+pub struct LogCaptureLayer {
     buffer: Arc<Mutex<VecDeque<LogEntry>>>,
-    /// Maximum buffer capacity
     capacity: usize,
-    /// Minimum level to capture (default: INFO)
     min_level: Level,
 }
 
-impl DashboardLayer {
-    /// Create a new DashboardLayer with the given buffer
+impl LogCaptureLayer {
     pub fn new(buffer: Arc<Mutex<VecDeque<LogEntry>>>) -> Self {
         Self {
             buffer,
@@ -31,7 +34,7 @@ impl DashboardLayer {
     }
 }
 
-impl<S> Layer<S> for DashboardLayer
+impl<S> Layer<S> for LogCaptureLayer
 where
     S: Subscriber,
 {
@@ -51,7 +54,6 @@ where
             message,
         };
 
-        // Non-blocking: skip entry if buffer is locked to avoid blocking the logging thread
         if let Ok(mut buffer) = self.buffer.try_lock() {
             while buffer.len() >= self.capacity {
                 buffer.pop_front();
@@ -61,7 +63,7 @@ where
     }
 }
 
-/// Visitor to extract message field from tracing events
+/// Visitor to extract message field from tracing events.
 struct MessageVisitor<'a>(&'a mut String);
 
 impl<'a> tracing::field::Visit for MessageVisitor<'a> {
@@ -95,9 +97,9 @@ mod tests {
     use tracing_subscriber::prelude::*;
 
     #[test]
-    fn test_dashboard_layer_captures_info() {
+    fn test_log_capture_layer_captures_info() {
         let buffer = Arc::new(Mutex::new(VecDeque::new()));
-        let layer = DashboardLayer::new(Arc::clone(&buffer));
+        let layer = LogCaptureLayer::new(Arc::clone(&buffer));
 
         let subscriber = tracing_subscriber::registry().with(layer);
         tracing::subscriber::with_default(subscriber, || {
@@ -110,9 +112,9 @@ mod tests {
     }
 
     #[test]
-    fn test_dashboard_layer_filters_debug() {
+    fn test_log_capture_layer_filters_debug() {
         let buffer = Arc::new(Mutex::new(VecDeque::new()));
-        let layer = DashboardLayer::new(Arc::clone(&buffer));
+        let layer = LogCaptureLayer::new(Arc::clone(&buffer));
 
         let subscriber = tracing_subscriber::registry().with(layer);
         tracing::subscriber::with_default(subscriber, || {
@@ -126,7 +128,7 @@ mod tests {
     #[test]
     fn test_buffer_capacity_limit() {
         let buffer = Arc::new(Mutex::new(VecDeque::new()));
-        let mut layer = DashboardLayer::new(Arc::clone(&buffer));
+        let mut layer = LogCaptureLayer::new(Arc::clone(&buffer));
         layer.capacity = 5;
 
         let subscriber = tracing_subscriber::registry().with(layer);

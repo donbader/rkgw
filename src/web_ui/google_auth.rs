@@ -637,7 +637,6 @@ mod tests {
         let resolver = ModelResolver::new(cache.clone(), HashMap::new());
         let config = Config {
             fake_reasoning_max_tokens: 10000,
-            web_ui_enabled: false,
             ..Config::with_defaults()
         };
 

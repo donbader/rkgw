@@ -25,9 +25,9 @@ use crate::cache::ModelCache;
 use crate::config::Config;
 use crate::converters::anthropic_to_kiro::build_kiro_payload as build_kiro_payload_anthropic;
 use crate::converters::openai_to_kiro::build_kiro_payload;
-use crate::dashboard::app::LogEntry;
 use crate::error::ApiError;
 use crate::http_client::KiroHttpClient;
+use crate::log_capture::LogEntry;
 use crate::metrics::MetricsCollector;
 use crate::middleware;
 use crate::middleware::DEBUG_LOGGER;
@@ -795,7 +795,6 @@ mod tests {
 
         let config = Config {
             fake_reasoning_max_tokens: 10000,
-            web_ui_enabled: false,
             ..Config::with_defaults()
         };
 

@@ -1,3 +1,3 @@
 pub mod collector;
 
-pub use collector::{MetricsCollector, ModelStats};
+pub use collector::MetricsCollector;
