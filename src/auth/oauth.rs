@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::Rng;
@@ -33,7 +34,10 @@ pub async fn register_client(
     let grant_types = if flow == "browser" {
         vec!["authorization_code", "refresh_token"]
     } else {
-        vec!["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"]
+        vec![
+            "urn:ietf:params:oauth:grant-type:device_code",
+            "refresh_token",
+        ]
     };
 
     let mut body = serde_json::json!({

@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { getApiKey } from './auth'
 
 export function useSSE(
   path: string,
@@ -8,19 +7,20 @@ export function useSSE(
   onStatus?: (connected: boolean) => void,
 ) {
   const cbRef = useRef(onMessage)
-  cbRef.current = onMessage
   const statusRef = useRef(onStatus)
-  statusRef.current = onStatus
+
+  useEffect(() => { cbRef.current = onMessage }, [onMessage])
+  useEffect(() => { statusRef.current = onStatus }, [onStatus])
 
   useEffect(() => {
     let source: EventSource | null = null
     let timer: ReturnType<typeof setTimeout>
     let retryDelay = 1000
+    let stopped = false
 
     function connect() {
-      const key = getApiKey()
-      if (!key) return
-      source = new EventSource(`/_ui/api${path}?api_key=${encodeURIComponent(key)}`)
+      if (stopped) return
+      source = new EventSource(`/_ui/api${path}`, { withCredentials: true })
       statusRef.current?.(true)
       retryDelay = 1000
 
@@ -31,13 +31,16 @@ export function useSSE(
       source.onerror = () => {
         statusRef.current?.(false)
         source?.close()
-        timer = setTimeout(connect, retryDelay)
-        retryDelay = Math.min(retryDelay * 1.5, 30000)
+        if (!stopped) {
+          timer = setTimeout(connect, retryDelay)
+          retryDelay = Math.min(retryDelay * 1.5, 30000)
+        }
       }
     }
 
     connect()
     return () => {
+      stopped = true
       source?.close()
       clearTimeout(timer)
     }

@@ -1397,6 +1397,146 @@ select.config-input {
   animation: emptyPulse 1.5s ease-in-out infinite;
 }
 
+/* ---- Login Error ---- */
+
+.login-error {
+  background: var(--red-dim);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-left: 2px solid var(--red);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 0.72rem;
+  color: var(--red);
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  text-align: left;
+}
+
+/* ---- API Key Manager ---- */
+
+.key-new-banner {
+  background: var(--green-dim);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.key-new-label {
+  font-size: 0.72rem;
+  color: var(--green);
+  font-family: var(--font-mono);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.key-new-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-new-value {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text);
+  background: var(--bg);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  flex: 1;
+  word-break: break-all;
+  user-select: all;
+}
+
+.key-create-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.key-create-row .config-input {
+  flex: 1;
+}
+
+/* ---- Role Badge ---- */
+
+.role-badge {
+  font-size: 0.55rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.role-badge:hover { opacity: 0.8; }
+
+/* ---- Domain Manager ---- */
+
+.domain-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.domain-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  padding: 6px 12px;
+  border-left: 2px solid var(--green-dim);
+  background: var(--bg);
+  transition: background 0.15s;
+}
+
+.domain-item:hover { background: var(--surface-hover); }
+
+.domain-name {
+  color: var(--green);
+  font-weight: 500;
+}
+
+/* ---- Setup Banner ---- */
+
+.setup-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--yellow-dim);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-left: 2px solid var(--yellow);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.setup-banner-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--yellow);
+  color: var(--bg);
+  font-weight: 700;
+  font-size: 0.78rem;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
 /* ---- Responsive ---- */
 
 @media (max-width: 900px) {

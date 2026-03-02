@@ -1,12 +1,9 @@
-export function getApiKey(): string | null {
-  return sessionStorage.getItem('apiKey')
-}
-
-export function setApiKey(key: string): void {
-  sessionStorage.setItem('apiKey', key)
+function getCsrfToken(): string | null {
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
+  return match ? decodeURIComponent(match[1]) : null
 }
 
 export function authHeaders(): Record<string, string> {
-  const key = getApiKey()
-  return key ? { Authorization: `Bearer ${key}` } : {}
+  const csrf = getCsrfToken()
+  return csrf ? { 'X-CSRF-Token': csrf } : {}
 }

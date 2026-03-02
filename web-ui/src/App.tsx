@@ -1,59 +1,25 @@
-import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout'
-import { AuthGate } from './components/AuthGate'
+import { SessionGate } from './components/SessionGate'
+import { AdminGuard } from './components/AdminGuard'
 import { ToastProvider } from './components/Toast'
 import { Dashboard } from './pages/Dashboard'
 import { Config } from './pages/Config'
-import { Setup } from './pages/Setup'
-import { checkSetupStatus } from './lib/api'
+import { Login } from './pages/Login'
+import { Profile } from './pages/Profile'
+import { Admin } from './pages/Admin'
 
 export default function App() {
-  const [setupComplete, setSetupComplete] = useState<boolean | null>(null)
-
-  useEffect(() => {
-    // Handle browser OAuth callback redirect
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('setup') === 'complete') {
-      window.history.replaceState({}, '', window.location.pathname)
-      setSetupComplete(true)
-      return
-    }
-
-    checkSetupStatus().then(setSetupComplete)
-  }, [])
-
-  if (setupComplete === null) {
-    return (
-      <div className="auth-overlay">
-        <div style={{ color: 'var(--text-tertiary)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
-          Loading...
-        </div>
-      </div>
-    )
-  }
-
   return (
     <ToastProvider>
       <BrowserRouter basename="/_ui">
         <Routes>
-          <Route
-            path="setup"
-            element={
-              setupComplete
-                ? <Navigate to="/" replace />
-                : <Setup onComplete={() => setSetupComplete(true)} />
-            }
-          />
-          <Route
-            element={
-              setupComplete
-                ? <AuthGate><Layout /></AuthGate>
-                : <Navigate to="/setup" replace />
-            }
-          >
+          <Route path="login" element={<Login />} />
+          <Route element={<SessionGate><Layout /></SessionGate>}>
             <Route index element={<Dashboard />} />
-            <Route path="config" element={<Config />} />
+            <Route path="config" element={<AdminGuard><Config /></AdminGuard>} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
           </Route>
         </Routes>
       </BrowserRouter>

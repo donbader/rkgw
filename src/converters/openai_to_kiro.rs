@@ -567,7 +567,6 @@ mod tests {
         Config {
             server_host: "0.0.0.0".to_string(),
             server_port: 8000,
-            proxy_api_key: "test".to_string(),
             kiro_region: "us-east-1".to_string(),
             streaming_timeout: 300,
             token_refresh_threshold: 300,
@@ -588,6 +587,9 @@ mod tests {
             tls_key_path: None,
             web_ui_enabled: false,
             database_url: None,
+            google_client_id: String::new(),
+            google_client_secret: String::new(),
+            google_callback_url: String::new(),
         }
     }
 

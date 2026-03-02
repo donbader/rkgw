@@ -8,6 +8,7 @@ use axum::{
 };
 use bytes::Bytes;
 use chrono::Utc;
+use dashmap::DashMap;
 use futures::stream::StreamExt;
 use serde_json::{json, Value};
 use std::sync::atomic::AtomicBool;
@@ -39,6 +40,36 @@ use crate::web_ui::config_db::ConfigDb;
 /// Application version from Cargo.toml
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Per-user Kiro credentials, injected into request extensions by auth middleware.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct UserKiroCreds {
+    pub user_id: Uuid,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub region: String,
+}
+
+/// Cached session information (in-memory, backed by DB).
+// TODO: Replace `role: String` with a `Role` enum (Admin, User) with serde support.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct SessionInfo {
+    pub user_id: Uuid,
+    pub email: String,
+    pub role: String,
+    pub expires_at: chrono::DateTime<Utc>,
+}
+
+/// Pending OAuth state for PKCE validation.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct OAuthPendingState {
+    pub nonce: String,
+    pub pkce_verifier: String,
+    pub created_at: chrono::DateTime<Utc>,
+}
+
 /// Application state shared across handlers
 #[derive(Clone)]
 pub struct AppState {
@@ -52,6 +83,36 @@ pub struct AppState {
     pub metrics: Arc<MetricsCollector>,
     pub log_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
     pub config_db: Option<Arc<ConfigDb>>,
+    /// In-memory session cache: session_id → SessionInfo
+    #[allow(dead_code)]
+    pub session_cache: Arc<DashMap<Uuid, SessionInfo>>,
+    /// In-memory API key cache: key_hash → (user_id, key_id)
+    #[allow(dead_code)]
+    pub api_key_cache: Arc<DashMap<String, (Uuid, Uuid)>>,
+    /// In-memory Kiro token cache: user_id → (access_token, region, cached_at)
+    pub kiro_token_cache: Arc<DashMap<Uuid, (String, String, std::time::Instant)>>,
+    /// Pending OAuth states: state_param → OAuthPendingState (10-min TTL)
+    #[allow(dead_code)]
+    pub oauth_pending: Arc<DashMap<String, OAuthPendingState>>,
+}
+
+impl AppState {
+    /// Get the config database or return an error.
+    pub fn require_config_db(&self) -> Result<Arc<ConfigDb>, ApiError> {
+        self.config_db
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| ApiError::ConfigError("Config database not available".to_string()))
+    }
+
+    /// Evict all cached data for a user (sessions, API keys, Kiro tokens).
+    /// Call after role change or user deletion.
+    #[allow(dead_code)]
+    pub fn evict_user_caches(&self, user_id: Uuid) {
+        self.session_cache.retain(|_, info| info.user_id != user_id);
+        self.api_key_cache.retain(|_, (uid, _)| *uid != user_id);
+        self.kiro_token_cache.remove(&user_id);
+    }
 }
 
 /// Guard to ensure active connections are decremented on drop
@@ -102,6 +163,12 @@ fn error_type_from_api_error(err: &ApiError) -> &'static str {
         ApiError::Internal(_) => "internal",
         ApiError::InvalidModel(_) => "validation",
         ApiError::ConfigError(_) => "config",
+        ApiError::Forbidden(_) => "auth",
+        ApiError::SessionExpired => "auth",
+        ApiError::DomainNotAllowed(_) => "auth",
+        ApiError::KiroTokenRequired => "auth",
+        ApiError::KiroTokenExpired => "auth",
+        ApiError::LastAdmin => "validation",
     }
 }
 
@@ -188,8 +255,18 @@ async fn get_models_handler(State(state): State<AppState>) -> Result<Json<ModelL
 /// Converts OpenAI format to Kiro format, makes the request, and converts back.
 async fn chat_completions_handler(
     State(state): State<AppState>,
-    Json(request): Json<ChatCompletionRequest>,
+    raw_request: axum::http::Request<Body>,
 ) -> Result<Response, ApiError> {
+    // Extract per-user Kiro credentials injected by auth middleware
+    let user_creds = raw_request.extensions().get::<UserKiroCreds>().cloned();
+
+    // Parse JSON body
+    let body_bytes = axum::body::to_bytes(raw_request.into_body(), 10 * 1024 * 1024)
+        .await
+        .map_err(|e| ApiError::ValidationError(format!("Failed to read body: {}", e)))?;
+    let request: ChatCompletionRequest = serde_json::from_slice(&body_bytes)
+        .map_err(|e| ApiError::ValidationError(format!("Invalid JSON: {}", e)))?;
+
     tracing::info!(
         "Request to /v1/chat/completions: model={}, stream={}, messages={}",
         request.model,
@@ -272,17 +349,19 @@ async fn chat_completions_handler(
             .await;
     }
 
-    // Get access token
-    let auth = state.auth_manager.read().await;
-    let access_token = auth.get_access_token().await.map_err(|e| {
-        let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
-        state.metrics.record_error(error_type_from_api_error(&err));
-        err
-    })?;
-
-    // Get region
-    let region = auth.get_region().await;
-    drop(auth);
+    // Get access token and region from per-user creds (injected by middleware) or fallback to global auth
+    let (access_token, region) = if let Some(ref creds) = user_creds {
+        (creds.access_token.clone(), creds.region.clone())
+    } else {
+        let auth = state.auth_manager.read().await;
+        let token = auth.get_access_token().await.map_err(|e| {
+            let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
+            state.metrics.record_error(error_type_from_api_error(&err));
+            err
+        })?;
+        let r = auth.get_region().await;
+        (token, r)
+    };
 
     // Build Kiro API URL - use /v1/chat/completions endpoint
     let kiro_api_url = format!(
@@ -428,9 +507,21 @@ async fn chat_completions_handler(
 /// Converts Anthropic format to Kiro format, makes the request, and converts back.
 async fn anthropic_messages_handler(
     State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
-    Json(request): Json<AnthropicMessagesRequest>,
+    raw_request: axum::http::Request<Body>,
 ) -> Result<Response, ApiError> {
+    // Extract per-user Kiro credentials injected by auth middleware
+    let user_creds = raw_request.extensions().get::<UserKiroCreds>().cloned();
+
+    // Extract headers before consuming the request body
+    let headers = raw_request.headers().clone();
+
+    // Parse JSON body
+    let body_bytes = axum::body::to_bytes(raw_request.into_body(), 10 * 1024 * 1024)
+        .await
+        .map_err(|e| ApiError::ValidationError(format!("Failed to read body: {}", e)))?;
+    let request: AnthropicMessagesRequest = serde_json::from_slice(&body_bytes)
+        .map_err(|e| ApiError::ValidationError(format!("Invalid JSON: {}", e)))?;
+
     tracing::info!(
         "Request to /v1/messages: model={}, stream={}, messages={}",
         request.model,
@@ -538,17 +629,19 @@ async fn anthropic_messages_handler(
             .await;
     }
 
-    // Get access token
-    let auth = state.auth_manager.read().await;
-    let access_token = auth.get_access_token().await.map_err(|e| {
-        let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
-        state.metrics.record_error(error_type_from_api_error(&err));
-        err
-    })?;
-
-    // Get region
-    let region = auth.get_region().await;
-    drop(auth);
+    // Get access token and region from per-user creds (injected by middleware) or fallback to global auth
+    let (access_token, region) = if let Some(ref creds) = user_creds {
+        (creds.access_token.clone(), creds.region.clone())
+    } else {
+        let auth = state.auth_manager.read().await;
+        let token = auth.get_access_token().await.map_err(|e| {
+            let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
+            state.metrics.record_error(error_type_from_api_error(&err));
+            err
+        })?;
+        let r = auth.get_region().await;
+        (token, r)
+    };
 
     // Build Kiro API URL - use /v1/messages endpoint
     let kiro_api_url = format!(
@@ -691,13 +784,7 @@ mod tests {
             }),
         ]);
 
-        let auth_manager = Arc::new(
-            AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
-                .unwrap(),
-        );
-
-        let http_client =
-            Arc::new(KiroHttpClient::new(auth_manager.clone(), 20, 30, 300, 3).unwrap());
+        let http_client = Arc::new(KiroHttpClient::new(20, 30, 300, 3).unwrap());
 
         let auth_manager = Arc::new(tokio::sync::RwLock::new(
             AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
@@ -707,8 +794,8 @@ mod tests {
         let resolver = ModelResolver::new(cache.clone(), HashMap::new());
 
         let config = Config {
-            proxy_api_key: "test-key".to_string(),
             fake_reasoning_max_tokens: 10000,
+            web_ui_enabled: false,
             ..Config::with_defaults()
         };
 
@@ -724,6 +811,10 @@ mod tests {
             metrics,
             log_buffer: Arc::new(Mutex::new(VecDeque::new())),
             config_db: None,
+            session_cache: Arc::new(DashMap::new()),
+            api_key_cache: Arc::new(DashMap::new()),
+            kiro_token_cache: Arc::new(DashMap::new()),
+            oauth_pending: Arc::new(DashMap::new()),
         }
     }
 
@@ -772,13 +863,31 @@ mod tests {
         }
     }
 
+    /// Helper: build an axum::http::Request from JSON body and optional headers.
+    fn build_anthropic_request(
+        body: &crate::models::anthropic::AnthropicMessagesRequest,
+        extra_headers: Option<&[(&str, &str)]>,
+    ) -> axum::http::Request<Body> {
+        let body_json = serde_json::to_vec(body).unwrap();
+        let mut builder = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/messages")
+            .header("content-type", "application/json");
+        if let Some(hdrs) = extra_headers {
+            for (k, v) in hdrs {
+                builder = builder.header(*k, *v);
+            }
+        }
+        builder.body(Body::from(body_json)).unwrap()
+    }
+
     #[tokio::test]
     async fn test_anthropic_messages_handler_without_version_header() {
         let state = create_test_state();
 
         // Create a request without anthropic-version header
         // This should NOT fail - the header is optional for compatibility
-        let request = crate::models::anthropic::AnthropicMessagesRequest {
+        let body = crate::models::anthropic::AnthropicMessagesRequest {
             model: "claude-sonnet-4".to_string(),
             messages: vec![crate::models::anthropic::AnthropicMessage {
                 role: "user".to_string(),
@@ -796,11 +905,11 @@ mod tests {
             metadata: None,
         };
 
-        let headers = axum::http::HeaderMap::new();
+        let raw_request = build_anthropic_request(&body, None);
 
         // Call handler - will fail later when trying to call Kiro API,
         // but should NOT fail due to missing anthropic-version header
-        let result = anthropic_messages_handler(State(state), headers, Json(request)).await;
+        let result = anthropic_messages_handler(State(state), raw_request).await;
 
         // The request should proceed past header validation
         // It will fail on the actual API call, but that's expected in tests
@@ -825,7 +934,7 @@ mod tests {
         let state = create_test_state();
 
         // Create a request with empty messages
-        let request = crate::models::anthropic::AnthropicMessagesRequest {
+        let body = crate::models::anthropic::AnthropicMessagesRequest {
             model: "claude-sonnet-4".to_string(),
             messages: vec![],
             max_tokens: 100,
@@ -840,11 +949,11 @@ mod tests {
             metadata: None,
         };
 
-        let mut headers = axum::http::HeaderMap::new();
-        headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
+        let raw_request =
+            build_anthropic_request(&body, Some(&[("anthropic-version", "2023-06-01")]));
 
         // Call handler - should fail due to empty messages
-        let result = anthropic_messages_handler(State(state), headers, Json(request)).await;
+        let result = anthropic_messages_handler(State(state), raw_request).await;
 
         assert!(result.is_err());
         match result {

@@ -20,7 +20,20 @@ export function Layout() {
     return () => clearInterval(id)
   }, [])
 
-  const pageTitle = location.pathname.includes('/config') ? 'configuration' : 'dashboard'
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && sidebarOpen) setSidebarOpen(false)
+    }
+    document.addEventListener('keydown', handleEsc)
+    return () => document.removeEventListener('keydown', handleEsc)
+  }, [sidebarOpen])
+
+  const pageTitle = (() => {
+    if (location.pathname.includes('/config')) return 'configuration'
+    if (location.pathname.includes('/profile')) return 'profile'
+    if (location.pathname.includes('/admin')) return 'administration'
+    return 'dashboard'
+  })()
 
   return (
     <div className="shell">
@@ -39,7 +52,7 @@ export function Layout() {
               <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
             </svg>
           </button>
-          <span className="page-title">{'> '}{pageTitle}<span className="cursor" /></span>
+          <span className="page-title"><span aria-hidden="true">{'> '}</span>{pageTitle}<span className="cursor" aria-hidden="true" /></span>
         </div>
         <div className="top-bar-info">
           <span>up {formatUptime(uptime)}</span>

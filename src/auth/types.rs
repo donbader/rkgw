@@ -46,6 +46,7 @@ pub struct AwsSsoOidcResponse {
 }
 
 /// OAuth client registration response from AWS SSO OIDC
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientRegistrationResponse {
@@ -55,6 +56,7 @@ pub struct ClientRegistrationResponse {
 }
 
 /// PKCE state for browser redirect flow
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PkceState {
     pub code_verifier: String,

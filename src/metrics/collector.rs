@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use uuid::Uuid;
 
 /// Ring buffer capacity for samples (15 minutes at ~4 samples/sec)
 const RING_BUFFER_CAPACITY: usize = 3600;
@@ -121,6 +122,9 @@ pub struct MetricsCollector {
 
     /// Per-model statistics
     per_model_stats: DashMap<String, ModelStats>,
+
+    /// Per-user per-model statistics
+    per_user_stats: DashMap<Uuid, DashMap<String, ModelStats>>,
 }
 
 impl MetricsCollector {
@@ -135,6 +139,7 @@ impl MetricsCollector {
             request_rate_samples: Mutex::new(VecDeque::with_capacity(RING_BUFFER_CAPACITY)),
             token_counts: Mutex::new(VecDeque::with_capacity(RING_BUFFER_CAPACITY)),
             per_model_stats: DashMap::new(),
+            per_user_stats: DashMap::new(),
         }
     }
 
@@ -181,6 +186,59 @@ impl MetricsCollector {
             .entry(model.to_string())
             .or_default()
             .record_request(latency_ms, input_tokens, output_tokens);
+    }
+
+    /// Record the end of a request with per-user tracking.
+    #[allow(dead_code)]
+    pub fn record_request_end_for_user(
+        &self,
+        latency_ms: f64,
+        model: &str,
+        input_tokens: u64,
+        output_tokens: u64,
+        user_id: Uuid,
+    ) {
+        // Record global stats
+        self.record_request_end(latency_ms, model, input_tokens, output_tokens);
+
+        // Record per-user stats
+        let user_models = self.per_user_stats.entry(user_id).or_default();
+        user_models
+            .entry(model.to_string())
+            .or_default()
+            .record_request(latency_ms, input_tokens, output_tokens);
+    }
+
+    /// Get per-user statistics.
+    #[allow(dead_code)]
+    pub fn get_user_stats(&self, user_id: Uuid) -> Vec<(String, ModelStats)> {
+        self.per_user_stats
+            .get(&user_id)
+            .map(|user_models| {
+                user_models
+                    .iter()
+                    .map(|entry| {
+                        let model = entry.key().clone();
+                        let stats = entry.value();
+                        let cloned = ModelStats {
+                            request_count: AtomicU64::new(
+                                stats.request_count.load(Ordering::Relaxed),
+                            ),
+                            total_latency_ms: AtomicU64::new(
+                                stats.total_latency_ms.load(Ordering::Relaxed),
+                            ),
+                            total_input_tokens: AtomicU64::new(
+                                stats.total_input_tokens.load(Ordering::Relaxed),
+                            ),
+                            total_output_tokens: AtomicU64::new(
+                                stats.total_output_tokens.load(Ordering::Relaxed),
+                            ),
+                        };
+                        (model, cloned)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Record an error

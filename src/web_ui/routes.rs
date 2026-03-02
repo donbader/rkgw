@@ -4,21 +4,16 @@ use std::sync::atomic::Ordering;
 use axum::{
     body::Body,
     extract::{Query, State},
-    http::{header, HeaderMap, StatusCode},
-    response::{Html, IntoResponse, Response},
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
-use chrono::Utc;
-use once_cell::sync::Lazy;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::sync::Mutex;
 use sysinfo::{Pid, ProcessesToUpdate, System};
-use uuid::Uuid;
 
 use rust_embed::Embed;
 
-use crate::auth::oauth;
 use crate::config::parse_debug_mode;
 use crate::error::ApiError;
 use crate::routes::AppState;
@@ -186,30 +181,12 @@ pub async fn get_config(State(state): State<AppState>) -> Json<Value> {
     // Clone the config snapshot and drop the read guard before any .await
     let config = state.config.read().unwrap().clone();
 
-    let masked_key = mask_sensitive(&config.proxy_api_key);
-
-    let masked_refresh_token = if let Some(ref db) = state.config_db {
-        match db.get_refresh_token().await {
-            Ok(Some(t)) => mask_sensitive(&t),
-            _ => String::new(),
-        }
-    } else {
-        String::new()
-    };
-
     Json(json!({
         "setup_complete": setup_complete,
         "config": {
             "server_host": config.server_host,
             "server_port": config.server_port,
-            "proxy_api_key": masked_key,
-            "kiro_refresh_token": masked_refresh_token,
             "kiro_region": config.kiro_region,
-            "oauth_sso_region": if let Some(ref db) = state.config_db {
-                db.get("oauth_sso_region").await.ok().flatten().unwrap_or_default()
-            } else {
-                String::new()
-            },
             "streaming_timeout": config.streaming_timeout,
             "token_refresh_threshold": config.token_refresh_threshold,
             "first_token_timeout": config.first_token_timeout,
@@ -338,93 +315,6 @@ fn apply_config_field(state: &AppState, key: &str, value: &Value) -> bool {
     }
 }
 
-/// Request body for initial setup.
-#[derive(Deserialize)]
-pub struct SetupRequest {
-    pub proxy_api_key: String,
-    pub kiro_refresh_token: String,
-    #[serde(default = "default_region")]
-    pub region: String,
-}
-
-fn default_region() -> String {
-    "us-east-1".to_string()
-}
-
-/// POST /ui/api/setup - Initial setup (no auth required)
-pub async fn setup(
-    State(state): State<AppState>,
-    Json(body): Json<SetupRequest>,
-) -> Result<Json<Value>, ApiError> {
-    if body.proxy_api_key.is_empty() {
-        return Err(ApiError::ValidationError(
-            "proxy_api_key cannot be empty".to_string(),
-        ));
-    }
-    if body.kiro_refresh_token.is_empty() {
-        return Err(ApiError::ValidationError(
-            "kiro_refresh_token cannot be empty".to_string(),
-        ));
-    }
-    if body.region.is_empty() {
-        return Err(ApiError::ValidationError(
-            "region cannot be empty".to_string(),
-        ));
-    }
-
-    // Atomically set from false to true to prevent race conditions
-    if state
-        .setup_complete
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return Err(ApiError::ValidationError(
-            "Setup has already been completed".to_string(),
-        ));
-    }
-
-    let config_db_ref = state
-        .config_db
-        .as_ref()
-        .ok_or_else(|| {
-            state.setup_complete.store(false, Ordering::SeqCst);
-            ApiError::ConfigError("Config database not available".to_string())
-        })?
-        .clone();
-
-    if let Err(e) = config_db_ref
-        .save_initial_setup(&body.proxy_api_key, &body.kiro_refresh_token, &body.region)
-        .await
-    {
-        state.setup_complete.store(false, Ordering::SeqCst);
-        return Err(ApiError::Internal(e));
-    }
-
-    // Update runtime config
-    {
-        let mut config = state.config.write().unwrap_or_else(|p| p.into_inner());
-        config.proxy_api_key = body.proxy_api_key;
-        config.kiro_region = body.region;
-    }
-
-    // Reinitialize AuthManager with the newly saved credentials
-    let threshold = {
-        let cfg = state.config.read().unwrap_or_else(|p| p.into_inner());
-        cfg.token_refresh_threshold
-    };
-    match crate::auth::AuthManager::new(config_db_ref, threshold).await {
-        Ok(new_auth) => {
-            let mut auth_lock = state.auth_manager.write().await;
-            *auth_lock = new_auth;
-        }
-        Err(e) => {
-            tracing::warn!(error = ?e, "Failed to initialize auth after setup; proxy may not work until restart");
-        }
-    }
-
-    Ok(Json(json!({ "success": true })))
-}
-
 /// GET /ui/api/config/schema - Field metadata for the config UI
 pub async fn get_config_schema() -> Json<Value> {
     let descriptions = get_config_field_descriptions();
@@ -482,7 +372,7 @@ pub struct HistoryQuery {
 }
 
 /// Keys whose values must be masked in config history responses.
-const SENSITIVE_CONFIG_KEYS: &[&str] = &["proxy_api_key", "kiro_refresh_token", "oauth_client_secret"];
+const SENSITIVE_CONFIG_KEYS: &[&str] = &["kiro_refresh_token", "oauth_client_secret"];
 
 /// GET /ui/api/config/history - Config change history
 pub async fn get_config_history(
@@ -525,391 +415,6 @@ pub async fn get_config_history(
     }
 
     Ok(Json(json!({ "history": [] })))
-}
-
-// --- OAuth flow types and state ---
-
-struct OAuthPendingState {
-    /// PKCE code_verifier (browser flow only)
-    code_verifier: Option<String>,
-    client_id: String,
-    client_secret: String,
-    client_secret_expires_at: i64,
-    device_code: Option<String>,
-    region: String,
-    start_url: String,
-    proxy_api_key: String,
-    redirect_uri: Option<String>,
-    created_at: chrono::DateTime<chrono::Utc>,
-}
-
-static OAUTH_PENDING: Lazy<Mutex<HashMap<String, OAuthPendingState>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
-/// Clean up expired entries (>10 min) from OAUTH_PENDING.
-fn cleanup_expired_pending() {
-    let now = Utc::now();
-    if let Ok(mut map) = OAUTH_PENDING.lock() {
-        map.retain(|_, v| (now - v.created_at).num_minutes() < 10);
-    }
-}
-
-#[derive(Deserialize)]
-pub struct OAuthStartRequest {
-    pub region: String,
-    pub start_url: String,
-    pub flow: String,
-    pub proxy_api_key: String,
-}
-
-/// POST /_ui/api/oauth/start - Begin OAuth flow (browser or device)
-pub async fn oauth_start(
-    State(_state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<OAuthStartRequest>,
-) -> Result<Json<Value>, ApiError> {
-    // Validate inputs
-    if body.region.is_empty() {
-        return Err(ApiError::ValidationError("region cannot be empty".into()));
-    }
-    if body.start_url.is_empty() {
-        return Err(ApiError::ValidationError(
-            "start_url cannot be empty".into(),
-        ));
-    }
-    if body.proxy_api_key.len() < 8 {
-        return Err(ApiError::ValidationError(
-            "proxy_api_key must be at least 8 characters".into(),
-        ));
-    }
-    if body.flow != "browser" && body.flow != "device" {
-        return Err(ApiError::ValidationError(
-            "flow must be 'browser' or 'device'".into(),
-        ));
-    }
-
-    cleanup_expired_pending();
-
-    // Build redirect_uri early so we can pass it to register_client for browser flow
-    let redirect_uri = if body.flow == "browser" {
-        let host = headers
-            .get("host")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("localhost");
-        Some(format!("http://{}/_ui/api/oauth/callback", host))
-    } else {
-        None
-    };
-
-    // Register OAuth client (includes grantTypes + redirectUris for browser flow)
-    let http_client = reqwest::Client::new();
-    let start_url_opt = if body.start_url.is_empty() {
-        None
-    } else {
-        Some(body.start_url.as_str())
-    };
-    let registration = oauth::register_client(
-        &http_client,
-        &body.region,
-        &body.flow,
-        redirect_uri.as_deref(),
-        start_url_opt,
-    )
-    .await
-    .map_err(ApiError::Internal)?;
-
-    match body.flow.as_str() {
-        "browser" => {
-            let pkce = oauth::generate_pkce();
-
-            let redirect_uri = redirect_uri.unwrap(); // always Some for browser flow
-
-            let authorize_url = oauth::build_authorize_url(
-                &body.region,
-                &registration.client_id,
-                &redirect_uri,
-                &pkce,
-            );
-
-            let state_key = pkce.state.clone();
-            let code_verifier = pkce.code_verifier.clone();
-
-            if let Ok(mut map) = OAUTH_PENDING.lock() {
-                map.insert(
-                    state_key,
-                    OAuthPendingState {
-                        code_verifier: Some(code_verifier),
-                        client_id: registration.client_id,
-                        client_secret: registration.client_secret,
-                        client_secret_expires_at: registration.client_secret_expires_at,
-                        device_code: None,
-                        region: body.region,
-                        start_url: body.start_url,
-                        proxy_api_key: body.proxy_api_key,
-                        redirect_uri: Some(redirect_uri),
-                        created_at: Utc::now(),
-                    },
-                );
-            }
-
-            Ok(Json(json!({
-                "flow": "browser",
-                "authorize_url": authorize_url,
-            })))
-        }
-        "device" => {
-            let device_auth = oauth::start_device_authorization(
-                &http_client,
-                &body.region,
-                &registration.client_id,
-                &registration.client_secret,
-                &body.start_url,
-            )
-            .await
-            .map_err(ApiError::Internal)?;
-
-            let device_code_id = Uuid::new_v4().to_string();
-
-            let response = json!({
-                "flow": "device",
-                "user_code": device_auth.user_code,
-                "verification_uri": device_auth.verification_uri,
-                "verification_uri_complete": device_auth.verification_uri_complete,
-                "device_code_id": device_code_id,
-                "expires_in": device_auth.expires_in,
-                "interval": device_auth.interval,
-            });
-
-            if let Ok(mut map) = OAUTH_PENDING.lock() {
-                map.insert(
-                    device_code_id,
-                    OAuthPendingState {
-                        code_verifier: None,
-                        client_id: registration.client_id,
-                        client_secret: registration.client_secret,
-                        client_secret_expires_at: registration.client_secret_expires_at,
-                        device_code: Some(device_auth.device_code),
-                        region: body.region,
-                        start_url: body.start_url,
-                        proxy_api_key: body.proxy_api_key,
-                        redirect_uri: None,
-                        created_at: Utc::now(),
-                    },
-                );
-            }
-
-            Ok(Json(response))
-        }
-        _ => unreachable!(),
-    }
-}
-
-#[derive(Deserialize)]
-pub struct OAuthCallbackQuery {
-    pub code: String,
-    pub state: String,
-}
-
-/// GET /_ui/api/oauth/callback - Browser redirect callback
-pub async fn oauth_callback(
-    State(state): State<AppState>,
-    Query(params): Query<OAuthCallbackQuery>,
-) -> Result<Response, ApiError> {
-    // Look up pending state
-    let pending = {
-        let mut map = OAUTH_PENDING
-            .lock()
-            .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to lock pending state")))?;
-        map.remove(&params.state)
-    };
-
-    let pending = pending.ok_or_else(|| {
-        ApiError::ValidationError("Invalid or expired OAuth state parameter".into())
-    })?;
-
-    let code_verifier = pending.code_verifier.ok_or_else(|| {
-        ApiError::Internal(anyhow::anyhow!("Missing PKCE code_verifier for browser flow"))
-    })?;
-
-    let redirect_uri = pending.redirect_uri.ok_or_else(|| {
-        ApiError::Internal(anyhow::anyhow!("Missing redirect_uri for browser flow"))
-    })?;
-
-    // Exchange code for tokens
-    let http_client = reqwest::Client::new();
-    let tokens = oauth::exchange_authorization_code(
-        &http_client,
-        &pending.region,
-        &pending.client_id,
-        &params.code,
-        &redirect_uri,
-        &code_verifier,
-    )
-    .await
-    .map_err(ApiError::Internal)?;
-
-    let refresh_token = tokens
-        .refresh_token
-        .as_deref()
-        .unwrap_or(&tokens.access_token);
-
-    // Save to config DB
-    let config_db_ref = state
-        .config_db
-        .as_ref()
-        .ok_or_else(|| ApiError::ConfigError("Config database not available".into()))?
-        .clone();
-
-    config_db_ref
-        .save_oauth_setup(
-            &pending.proxy_api_key,
-            refresh_token,
-            &pending.region,
-            &pending.client_id,
-            &pending.client_secret,
-            &pending.client_secret_expires_at.to_string(),
-            &pending.start_url,
-        )
-        .await
-        .map_err(ApiError::Internal)?;
-
-    // Update runtime config
-    {
-        let mut config = state.config.write().unwrap_or_else(|p| p.into_inner());
-        config.proxy_api_key = pending.proxy_api_key;
-        config.kiro_region = "us-east-1".to_string();
-    }
-
-    // Set setup_complete
-    state.setup_complete.store(true, Ordering::SeqCst);
-
-    // Reinitialize AuthManager
-    let threshold = {
-        let cfg = state.config.read().unwrap_or_else(|p| p.into_inner());
-        cfg.token_refresh_threshold
-    };
-    match crate::auth::AuthManager::new(config_db_ref, threshold).await {
-        Ok(new_auth) => {
-            let mut auth_lock = state.auth_manager.write().await;
-            *auth_lock = new_auth;
-        }
-        Err(e) => {
-            tracing::warn!(error = ?e, "Failed to initialize auth after OAuth setup");
-        }
-    }
-
-    // Redirect back to UI
-    Ok(Html(
-        "<html><script>window.location='/_ui/?setup=complete'</script></html>".to_string(),
-    )
-    .into_response())
-}
-
-#[derive(Deserialize)]
-pub struct DevicePollRequest {
-    pub device_code_id: String,
-}
-
-/// POST /_ui/api/oauth/device/poll - Poll device code authorization status
-pub async fn oauth_device_poll(
-    State(state): State<AppState>,
-    Json(body): Json<DevicePollRequest>,
-) -> Result<Json<Value>, ApiError> {
-    // Read pending state (don't remove yet)
-    let (client_id, client_secret, client_secret_expires_at, device_code, region, start_url, proxy_api_key) = {
-        let map = OAUTH_PENDING
-            .lock()
-            .map_err(|_| ApiError::Internal(anyhow::anyhow!("Failed to lock pending state")))?;
-        let pending = map.get(&body.device_code_id).ok_or_else(|| {
-            ApiError::ValidationError("Invalid or expired device_code_id".into())
-        })?;
-        let dc = pending.device_code.clone().ok_or_else(|| {
-            ApiError::Internal(anyhow::anyhow!("Missing device_code for device flow"))
-        })?;
-        (
-            pending.client_id.clone(),
-            pending.client_secret.clone(),
-            pending.client_secret_expires_at,
-            dc,
-            pending.region.clone(),
-            pending.start_url.clone(),
-            pending.proxy_api_key.clone(),
-        )
-    };
-
-    let http_client = reqwest::Client::new();
-    let result = oauth::poll_device_token(
-        &http_client,
-        &region,
-        &client_id,
-        &client_secret,
-        &device_code,
-    )
-    .await
-    .map_err(ApiError::Internal)?;
-
-    use crate::auth::PollResult;
-    match result {
-        PollResult::Pending => Ok(Json(json!({ "status": "pending" }))),
-        PollResult::SlowDown => Ok(Json(json!({ "status": "slow_down" }))),
-        PollResult::Success(tokens) => {
-            // Remove from pending
-            if let Ok(mut map) = OAUTH_PENDING.lock() {
-                map.remove(&body.device_code_id);
-            }
-
-            let refresh_token = tokens
-                .refresh_token
-                .as_deref()
-                .unwrap_or(&tokens.access_token);
-
-            let config_db_ref = state
-                .config_db
-                .as_ref()
-                .ok_or_else(|| ApiError::ConfigError("Config database not available".into()))?
-                .clone();
-
-            config_db_ref
-                .save_oauth_setup(
-                    &proxy_api_key,
-                    refresh_token,
-                    &region,
-                    &client_id,
-                    &client_secret,
-                    &client_secret_expires_at.to_string(),
-                    &start_url,
-                )
-                .await
-                .map_err(ApiError::Internal)?;
-
-            // Update runtime config
-            {
-                let mut config = state.config.write().unwrap_or_else(|p| p.into_inner());
-                config.proxy_api_key = proxy_api_key;
-                config.kiro_region = "us-east-1".to_string();
-            }
-
-            // Set setup_complete
-            state.setup_complete.store(true, Ordering::SeqCst);
-
-            // Reinitialize AuthManager
-            let threshold = {
-                let cfg = state.config.read().unwrap_or_else(|p| p.into_inner());
-                cfg.token_refresh_threshold
-            };
-            match crate::auth::AuthManager::new(config_db_ref, threshold).await {
-                Ok(new_auth) => {
-                    let mut auth_lock = state.auth_manager.write().await;
-                    *auth_lock = new_auth;
-                }
-                Err(e) => {
-                    tracing::warn!(error = ?e, "Failed to initialize auth after device OAuth setup");
-                }
-            }
-
-            Ok(Json(json!({ "status": "complete" })))
-        }
-    }
 }
 
 #[cfg(test)]
@@ -966,7 +471,6 @@ mod tests {
         let fields = value["fields"].as_object().unwrap();
         assert!(fields.contains_key("log_level"));
         assert!(fields.contains_key("server_port"));
-        assert!(fields.contains_key("proxy_api_key"));
 
         let log_level = fields["log_level"].as_object().unwrap();
         assert!(log_level.contains_key("options"));

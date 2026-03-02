@@ -29,13 +29,6 @@ const CONFIG_GROUPS: { title: string; icon: string; fields: ConfigField[] }[] = 
     ],
   },
   {
-    title: 'Authentication',
-    icon: 'lock',
-    fields: [
-      { key: 'proxy_api_key', label: 'API Key', type: 'password', restart: true },
-    ],
-  },
-  {
     title: 'Kiro Backend',
     icon: 'globe',
     fields: [

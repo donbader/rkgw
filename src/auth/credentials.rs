@@ -110,7 +110,9 @@ mod tests {
     #[tokio::test]
     async fn test_load_from_config_db_missing_oauth_creds() {
         let Some(db) = setup_test_db().await else {
-            eprintln!("Skipping test_load_from_config_db_missing_oauth_creds: DATABASE_URL not set");
+            eprintln!(
+                "Skipping test_load_from_config_db_missing_oauth_creds: DATABASE_URL not set"
+            );
             return;
         };
         db.set("kiro_refresh_token", "my-refresh-token", "test")

@@ -1,18 +1,17 @@
 use anyhow::{Context, Result};
 use reqwest::{Client, Request, Response};
-use std::sync::Arc;
 use std::time::Duration;
 
-use crate::auth::AuthManager;
 use crate::error::ApiError;
 
-/// HTTP client for Kiro API with retry logic
+/// HTTP client for Kiro API with retry logic.
+///
+/// Token-agnostic: callers set the Authorization header on each request.
+/// Retries 429 and 5xx with exponential backoff. 403 is returned as-is;
+/// callers are responsible for per-user token refresh.
 pub struct KiroHttpClient {
     /// Shared HTTP client with connection pooling
     client: Client,
-
-    /// Authentication manager
-    auth_manager: Arc<AuthManager>,
 
     /// Maximum number of retries
     max_retries: u32,
@@ -22,9 +21,8 @@ pub struct KiroHttpClient {
 }
 
 impl KiroHttpClient {
-    /// Create a new HTTP client
+    /// Create a new HTTP client (no auth dependency).
     pub fn new(
-        auth_manager: Arc<AuthManager>,
         max_connections: usize,
         connect_timeout: u64,
         request_timeout: u64,
@@ -39,17 +37,18 @@ impl KiroHttpClient {
 
         Ok(Self {
             client,
-            auth_manager,
             max_retries,
             base_delay_ms: 1000, // 1 second base delay
         })
     }
 
-    /// Execute a request with retry logic
+    /// Execute a request with retry logic.
+    ///
     /// Automatically handles:
-    /// - 403: refreshes token and retries
     /// - 429: exponential backoff
     /// - 5xx: exponential backoff
+    ///
+    /// 403 is returned as an error (caller handles per-user token refresh).
     pub async fn request_with_retry(&self, request: Request) -> Result<Response, ApiError> {
         self.request_with_retry_internal(request, true).await
     }
@@ -63,7 +62,7 @@ impl KiroHttpClient {
     /// Internal method that handles retry logic
     async fn request_with_retry_internal(
         &self,
-        mut request: Request,
+        request: Request,
         enable_retry: bool,
     ) -> Result<Response, ApiError> {
         let max_retries = if enable_retry { self.max_retries } else { 0 };
@@ -121,36 +120,6 @@ impl KiroHttpClient {
 
                     // Handle specific error codes
                     match status.as_u16() {
-                        // 403: Refresh token and retry
-                        403 => {
-                            if attempt < max_retries {
-                                tracing::warn!("Received 403, refreshing token and retrying...");
-
-                                // Refresh token
-                                if let Err(e) = self.auth_manager.get_access_token().await {
-                                    tracing::error!("Token refresh failed: {}", e);
-                                    return Err(ApiError::AuthError(format!(
-                                        "Token refresh failed: {}",
-                                        e
-                                    )));
-                                }
-
-                                // Update Authorization header in request
-                                let token = self
-                                    .auth_manager
-                                    .get_access_token()
-                                    .await
-                                    .map_err(|e| ApiError::AuthError(e.to_string()))?;
-                                request.headers_mut().insert(
-                                    "Authorization",
-                                    format!("Bearer {}", token).parse().unwrap(),
-                                );
-
-                                attempt += 1;
-                                continue;
-                            }
-                        }
-
                         // 429 or 5xx: Exponential backoff
                         429 | 500..=599 => {
                             if attempt < max_retries {
@@ -297,12 +266,7 @@ mod tests {
 
     #[test]
     fn test_backoff_calculation() {
-        let auth_manager = Arc::new(
-            AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
-                .unwrap(),
-        );
-
-        let client = KiroHttpClient::new(auth_manager, 20, 30, 300, 3).unwrap();
+        let client = KiroHttpClient::new(20, 30, 300, 3).unwrap();
 
         // Test exponential backoff
         let delay0 = client.calculate_backoff_delay(0);

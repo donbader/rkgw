@@ -1,5 +1,15 @@
 use std::collections::HashMap;
 
+use axum::extract::{Path, State};
+use axum::routing::{delete, get};
+use axum::{Extension, Json, Router};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::error::ApiError;
+use crate::routes::{AppState, SessionInfo};
+
 /// Whether a config change can be applied at runtime or requires a restart.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChangeType {
@@ -17,9 +27,15 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         | "truncation_recovery"
         | "tool_description_max_length"
         | "first_token_timeout" => ChangeType::HotReload,
-        "server_host" | "server_port" | "tls_cert_path" | "tls_key_path"
-        | "proxy_api_key" | "streaming_timeout" | "token_refresh_threshold"
-        | "http_max_connections" | "http_connect_timeout" | "http_request_timeout"
+        "server_host"
+        | "server_port"
+        | "tls_cert_path"
+        | "tls_key_path"
+        | "streaming_timeout"
+        | "token_refresh_threshold"
+        | "http_max_connections"
+        | "http_connect_timeout"
+        | "http_request_timeout"
         | "http_max_retries" => ChangeType::RequiresRestart,
         // Default unknown keys to restart for safety
         _ => ChangeType::RequiresRestart,
@@ -44,15 +60,6 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
                 .ok_or_else(|| "server_port must be a number".to_string())?;
             if n == 0 || n > 65535 {
                 return Err("server_port must be between 1 and 65535".to_string());
-            }
-            Ok(())
-        }
-        "proxy_api_key" => {
-            let s = value
-                .as_str()
-                .ok_or_else(|| "proxy_api_key must be a string".to_string())?;
-            if s.is_empty() {
-                return Err("proxy_api_key cannot be empty".to_string());
             }
             Ok(())
         }
@@ -101,9 +108,7 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
                     "fake_reasoning_max_tokens must be a positive integer".to_string()
                 })?;
             if n == 0 || n > 1_000_000 {
-                return Err(
-                    "fake_reasoning_max_tokens must be between 1 and 1000000".to_string(),
-                );
+                return Err("fake_reasoning_max_tokens must be between 1 and 1000000".to_string());
             }
             Ok(())
         }
@@ -115,9 +120,7 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
                     "tool_description_max_length must be a positive integer".to_string()
                 })?;
             if n == 0 || n > 1_000_000 {
-                return Err(
-                    "tool_description_max_length must be between 1 and 1000000".to_string(),
-                );
+                return Err("tool_description_max_length must be between 1 and 1000000".to_string());
             }
             Ok(())
         }
@@ -131,7 +134,9 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
             }
             Ok(())
         }
-        "streaming_timeout" | "token_refresh_threshold" | "http_connect_timeout"
+        "streaming_timeout"
+        | "token_refresh_threshold"
+        | "http_connect_timeout"
         | "http_request_timeout" => {
             let n = value
                 .as_u64()
@@ -180,10 +185,6 @@ pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
         "Server bind address (e.g. 127.0.0.1, 0.0.0.0)",
     );
     m.insert("server_port", "Server listen port (1-65535)");
-    m.insert(
-        "proxy_api_key",
-        "API key required for client authentication",
-    );
     m.insert("kiro_region", "AWS region for the Kiro API");
     m.insert(
         "log_level",
@@ -234,8 +235,14 @@ pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
         "http_max_retries",
         "Retry attempts for failed upstream requests (0-10)",
     );
-    m.insert("tls_cert_path", "Path to custom TLS certificate file (PEM). Optional — self-signed cert used when not set");
-    m.insert("tls_key_path", "Path to custom TLS private key file (PEM). Optional — self-signed key used when not set");
+    m.insert(
+        "tls_cert_path",
+        "Path to custom TLS certificate file (PEM). Optional — self-signed cert used when not set",
+    );
+    m.insert(
+        "tls_key_path",
+        "Path to custom TLS private key file (PEM). Optional — self-signed key used when not set",
+    );
     m.insert(
         "oauth_client_id",
         "AWS SSO OIDC client ID for OAuth authentication",
@@ -248,15 +255,158 @@ pub fn get_config_field_descriptions() -> HashMap<&'static str, &'static str> {
         "oauth_client_secret_expires_at",
         "When the OAuth client secret expires (re-registration needed)",
     );
-    m.insert(
-        "oauth_start_url",
-        "IAM Identity Center start URL",
-    );
-    m.insert(
-        "oauth_sso_region",
-        "AWS region for SSO OIDC endpoints",
-    );
+    m.insert("oauth_start_url", "IAM Identity Center start URL");
+    m.insert("oauth_sso_region", "AWS region for SSO OIDC endpoints");
     m
+}
+
+// ── Domain allowlist types ───────────────────────────────────────────
+
+/// A domain in the allowlist.
+#[derive(Serialize)]
+struct DomainEntry {
+    domain: String,
+    added_by: Option<Uuid>,
+    created_at: DateTime<Utc>,
+}
+
+/// Response for listing domains.
+#[derive(Serialize)]
+struct DomainListResponse {
+    domains: Vec<DomainEntry>,
+    count: usize,
+}
+
+/// Request to add a domain.
+#[derive(Deserialize)]
+struct AddDomainRequest {
+    domain: String,
+}
+
+/// Response for add/delete domain operations.
+#[derive(Serialize)]
+struct DomainOpResponse {
+    ok: bool,
+}
+
+// Session extraction is handled by the session_middleware + admin_middleware,
+// which inject SessionInfo into request extensions. Handlers use Extension<SessionInfo>.
+
+// ── Domain allowlist handlers ────────────────────────────────────────
+
+/// GET /_ui/api/domains — list allowed domains (admin only)
+async fn list_domains(
+    State(state): State<AppState>,
+    Extension(_session): Extension<SessionInfo>,
+) -> Result<Json<DomainListResponse>, ApiError> {
+    let config_db = state
+        .config_db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not configured")))?;
+
+    let rows = config_db
+        .list_allowed_domains()
+        .await
+        .map_err(ApiError::Internal)?;
+
+    let domains: Vec<DomainEntry> = rows
+        .into_iter()
+        .map(|(domain, added_by, created_at)| DomainEntry {
+            domain,
+            added_by,
+            created_at,
+        })
+        .collect();
+
+    let count = domains.len();
+    Ok(Json(DomainListResponse { domains, count }))
+}
+
+/// POST /_ui/api/domains — add domain (admin only, stored lowercase, exact match only)
+async fn add_domain(
+    State(state): State<AppState>,
+    Extension(session): Extension<SessionInfo>,
+    Json(body): Json<AddDomainRequest>,
+) -> Result<Json<DomainOpResponse>, ApiError> {
+    let admin_id = session.user_id;
+    let config_db = state
+        .config_db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not configured")))?;
+
+    // Validate domain format
+    let domain = body.domain.trim().to_lowercase();
+    if domain.is_empty() {
+        return Err(ApiError::ValidationError(
+            "Domain cannot be empty".to_string(),
+        ));
+    }
+    if domain.contains(' ') || domain.contains('@') {
+        return Err(ApiError::ValidationError(
+            "Invalid domain format. Provide just the domain (e.g. 'example.com'), not an email address.".to_string(),
+        ));
+    }
+    if !domain.contains('.') {
+        return Err(ApiError::ValidationError(
+            "Invalid domain format. Domain must contain at least one dot (e.g. 'example.com')."
+                .to_string(),
+        ));
+    }
+
+    config_db
+        .add_allowed_domain(&domain, admin_id)
+        .await
+        .map_err(ApiError::Internal)?;
+
+    tracing::info!(
+        admin_id = %admin_id,
+        domain = %domain,
+        "domain_added"
+    );
+
+    Ok(Json(DomainOpResponse { ok: true }))
+}
+
+/// DELETE /_ui/api/domains/:domain — remove domain (admin only)
+async fn remove_domain(
+    State(state): State<AppState>,
+    Extension(session): Extension<SessionInfo>,
+    Path(domain): Path<String>,
+) -> Result<Json<DomainOpResponse>, ApiError> {
+    let admin_id = session.user_id;
+    let config_db = state
+        .config_db
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not configured")))?;
+
+    let rows_affected = config_db
+        .remove_allowed_domain(&domain)
+        .await
+        .map_err(ApiError::Internal)?;
+
+    if rows_affected == 0 {
+        return Err(ApiError::ValidationError(format!(
+            "Domain '{}' not found in allowlist",
+            domain
+        )));
+    }
+
+    tracing::info!(
+        admin_id = %admin_id,
+        domain = %domain,
+        "domain_removed"
+    );
+
+    Ok(Json(DomainOpResponse { ok: true }))
+}
+
+// ── Router ───────────────────────────────────────────────────────────
+
+/// Build the domain allowlist management router (admin only).
+pub fn domain_routes() -> Router<AppState> {
+    Router::new()
+        .route("/domains", get(list_domains).post(add_domain))
+        .route("/domains/{domain}", delete(remove_domain))
 }
 
 #[cfg(test)]
@@ -306,10 +456,6 @@ mod tests {
         );
         assert_eq!(
             classify_config_change("tls_key_path"),
-            ChangeType::RequiresRestart
-        );
-        assert_eq!(
-            classify_config_change("proxy_api_key"),
             ChangeType::RequiresRestart
         );
         assert_eq!(
@@ -377,10 +523,7 @@ mod tests {
 
     #[test]
     fn test_validate_boolean_fields() {
-        for key in &[
-            "fake_reasoning_enabled",
-            "truncation_recovery",
-        ] {
+        for key in &["fake_reasoning_enabled", "truncation_recovery"] {
             assert!(validate_config_field(key, &json!(true)).is_ok());
             assert!(validate_config_field(key, &json!(false)).is_ok());
             assert!(validate_config_field(key, &json!("true")).is_ok());
@@ -407,13 +550,17 @@ mod tests {
     fn test_validate_string_fields() {
         assert!(validate_config_field("server_host", &json!("0.0.0.0")).is_ok());
         assert!(validate_config_field("server_host", &json!(123)).is_err());
-        assert!(validate_config_field("proxy_api_key", &json!("key")).is_ok());
-        assert!(validate_config_field("proxy_api_key", &json!("")).is_err());
     }
 
     #[test]
     fn test_validate_unknown_field() {
         assert!(validate_config_field("nonexistent", &json!("val")).is_err());
+    }
+
+    #[test]
+    fn test_proxy_api_key_removed_from_validation() {
+        // proxy_api_key is no longer a valid config field
+        assert!(validate_config_field("proxy_api_key", &json!("key")).is_err());
     }
 
     #[test]
@@ -488,7 +635,6 @@ mod tests {
         let expected_keys = vec![
             "server_host",
             "server_port",
-            "proxy_api_key",
             "kiro_region",
             "log_level",
             "debug_mode",
@@ -509,5 +655,41 @@ mod tests {
         for key in expected_keys {
             assert!(descs.contains_key(key), "Missing description for '{}'", key);
         }
+        // proxy_api_key should NOT be in descriptions
+        assert!(
+            !descs.contains_key("proxy_api_key"),
+            "proxy_api_key should be removed from descriptions"
+        );
+    }
+
+    #[test]
+    fn test_domain_validation_in_request() {
+        // Test AddDomainRequest deserialization
+        let json = serde_json::json!({ "domain": "example.com" });
+        let req: AddDomainRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.domain, "example.com");
+    }
+
+    #[test]
+    fn test_domain_entry_serialization() {
+        let entry = DomainEntry {
+            domain: "example.com".to_string(),
+            added_by: Some(Uuid::new_v4()),
+            created_at: Utc::now(),
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["domain"], "example.com");
+        assert!(json["added_by"].is_string());
+    }
+
+    #[test]
+    fn test_domain_list_response_serialization() {
+        let resp = DomainListResponse {
+            domains: vec![],
+            count: 0,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["count"], 0);
+        assert!(json["domains"].is_array());
     }
 }

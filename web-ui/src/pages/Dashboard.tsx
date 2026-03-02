@@ -1,6 +1,7 @@
 import { useReducer, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useSSE } from '../lib/useSSE'
+import { useSession } from '../components/SessionGate'
 import { MetricCard } from '../components/MetricCard'
 import { Sparkline } from '../components/Sparkline'
 import { ModelTable } from '../components/ModelTable'
@@ -72,6 +73,7 @@ interface LayoutContext {
 
 export function Dashboard() {
   const { setConnected } = useOutletContext<LayoutContext>()
+  const { user } = useSession()
   const [state, dispatch] = useReducer(metricsReducer, initialState)
 
   const handleMetrics = useCallback((raw: unknown) => {
@@ -82,7 +84,9 @@ export function Dashboard() {
 
   return (
     <>
-      <div className="section-header">SYSTEM</div>
+      <h2 className="section-header">
+        {user.role === 'admin' ? 'SYSTEM' : 'YOUR USAGE'}
+      </h2>
       <div className="metrics-grid">
         <MetricCard
           label="Active Connections"
@@ -104,7 +108,7 @@ export function Dashboard() {
         />
       </div>
 
-      <div className="section-header">TRAFFIC</div>
+      <h2 className="section-header">TRAFFIC</h2>
       <div className="two-col">
         <div className="card">
           <div className="card-header">
@@ -134,7 +138,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="section-header">MODELS</div>
+      <h2 className="section-header">MODELS</h2>
       <div className="card mb-24">
         <div className="card-header">
           <span className="card-title">{'> '}model stats</span>
@@ -142,7 +146,7 @@ export function Dashboard() {
         <ModelTable models={state.models || []} />
       </div>
 
-      <div className="section-header">ERRORS</div>
+      <h2 className="section-header">ERRORS</h2>
       <div className="card mb-24">
         <div className="card-header">
           <span className="card-title">{'> '}errors</span>
@@ -150,7 +154,7 @@ export function Dashboard() {
         <ErrorsPanel errors={state.errors} />
       </div>
 
-      <div className="section-header">LOGS</div>
+      <h2 className="section-header">LOGS</h2>
       <div className="card">
         <div className="card-header">
           <span className="card-title">{'> '}live logs</span>

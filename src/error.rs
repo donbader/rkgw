@@ -32,6 +32,36 @@ pub enum ApiError {
     #[error("Validation error: {0}")]
     ValidationError(String),
 
+    /// Forbidden (authenticated but not authorized)
+    #[error("Forbidden: {0}")]
+    #[allow(dead_code)]
+    Forbidden(String),
+
+    /// Session expired or invalid
+    #[error("Session expired")]
+    #[allow(dead_code)]
+    SessionExpired,
+
+    /// Email domain not in allowlist
+    #[error("Domain not allowed: {0}")]
+    #[allow(dead_code)]
+    DomainNotAllowed(String),
+
+    /// User has no Kiro token configured
+    #[error("Kiro token required")]
+    #[allow(dead_code)]
+    KiroTokenRequired,
+
+    /// User's Kiro token has expired and refresh failed
+    #[error("Kiro token expired")]
+    #[allow(dead_code)]
+    KiroTokenExpired,
+
+    /// Cannot remove or demote the last admin
+    #[error("Cannot remove or demote the last admin user")]
+    #[allow(dead_code)]
+    LastAdmin,
+
     /// Internal server error
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
@@ -49,6 +79,32 @@ impl IntoResponse for ApiError {
             }
             ApiError::ConfigError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error", msg),
             ApiError::ValidationError(msg) => (StatusCode::BAD_REQUEST, "validation_error", msg),
+            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, "forbidden", msg),
+            ApiError::SessionExpired => (
+                StatusCode::UNAUTHORIZED,
+                "session_expired",
+                "Session expired".to_string(),
+            ),
+            ApiError::DomainNotAllowed(domain) => (
+                StatusCode::FORBIDDEN,
+                "domain_not_allowed",
+                format!("Email domain '{}' is not in the allowlist", domain),
+            ),
+            ApiError::KiroTokenRequired => (
+                StatusCode::FORBIDDEN,
+                "kiro_token_required",
+                "Set up your Kiro token at /_ui/profile".to_string(),
+            ),
+            ApiError::KiroTokenExpired => (
+                StatusCode::FORBIDDEN,
+                "kiro_token_expired",
+                "Re-authenticate your Kiro token at /_ui/profile".to_string(),
+            ),
+            ApiError::LastAdmin => (
+                StatusCode::CONFLICT,
+                "last_admin",
+                "Cannot remove or demote the last admin user".to_string(),
+            ),
             ApiError::Internal(err) => {
                 // Log internal errors
                 tracing::error!("Internal error: {:?}", err);
@@ -205,5 +261,47 @@ mod tests {
         };
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn test_forbidden_returns_403() {
+        let err = ApiError::Forbidden("Access denied".to_string());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_session_expired_returns_401() {
+        let err = ApiError::SessionExpired;
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_domain_not_allowed_returns_403() {
+        let err = ApiError::DomainNotAllowed("evil.com".to_string());
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_kiro_token_required_returns_403() {
+        let err = ApiError::KiroTokenRequired;
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_kiro_token_expired_returns_403() {
+        let err = ApiError::KiroTokenExpired;
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_last_admin_returns_409() {
+        let err = ApiError::LastAdmin;
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
 }

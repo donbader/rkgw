@@ -122,9 +122,8 @@ async fn main() -> Result<()> {
         )
     };
 
-    // Initialize HTTP client
+    // Initialize HTTP client (token-agnostic; callers set auth per-request)
     let http_client = Arc::new(http_client::KiroHttpClient::new(
-        auth_manager.clone(),
         config.http_max_connections,
         config.http_connect_timeout,
         config.http_request_timeout,
@@ -197,7 +196,21 @@ async fn main() -> Result<()> {
         metrics: Arc::clone(&metrics),
         log_buffer: Arc::clone(&log_buffer),
         config_db,
+        session_cache: Arc::new(dashmap::DashMap::new()),
+        api_key_cache: Arc::new(dashmap::DashMap::new()),
+        kiro_token_cache: Arc::new(dashmap::DashMap::new()),
+        oauth_pending: Arc::new(dashmap::DashMap::new()),
     };
+
+    // Start background tasks (token refresh + session cleanup)
+    if let Some(ref db) = app_state.config_db {
+        web_ui::user_kiro::spawn_token_refresh_task(Arc::clone(db));
+        web_ui::session::SessionService::spawn_cleanup_task(
+            Arc::clone(db),
+            Arc::clone(&app_state.session_cache),
+        );
+        tracing::info!("Background tasks started (token refresh, session cleanup)");
+    }
 
     let app = build_app(app_state);
 
@@ -290,10 +303,7 @@ async fn init_auth_from_config_db(
                 let am = Arc::new(am);
                 match am.get_access_token().await {
                     Ok(token) => {
-                        tracing::info!(
-                            "Authentication successful (token length: {})",
-                            token.len()
-                        );
+                        tracing::info!("Authentication successful (token length: {})", token.len());
                     }
                     Err(e) => {
                         tracing::error!("Authentication failed: {}", e);

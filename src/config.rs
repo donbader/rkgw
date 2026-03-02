@@ -35,6 +35,18 @@ pub struct CliArgs {
     /// Enable monitoring dashboard TUI
     #[arg(long, default_value = "false")]
     pub dashboard: bool,
+
+    /// Google OAuth Client ID (required when web UI enabled)
+    #[arg(long, env = "GOOGLE_CLIENT_ID", default_value = "")]
+    pub google_client_id: String,
+
+    /// Google OAuth Client Secret
+    #[arg(long, env = "GOOGLE_CLIENT_SECRET", default_value = "")]
+    pub google_client_secret: String,
+
+    /// Google OAuth Callback URL (required when GOOGLE_CLIENT_ID is set)
+    #[arg(long, env = "GOOGLE_CALLBACK_URL", default_value = "")]
+    pub google_callback_url: String,
 }
 
 #[derive(Clone, Debug)]
@@ -42,9 +54,6 @@ pub struct Config {
     // Server settings
     pub server_host: String,
     pub server_port: u16,
-
-    // Authentication
-    pub proxy_api_key: String,
 
     // Kiro credentials
     pub kiro_region: String,
@@ -88,6 +97,10 @@ pub struct Config {
     // Database
     pub database_url: Option<String>,
 
+    // Google SSO (bootstrap from env vars)
+    pub google_client_id: String,
+    pub google_client_secret: String,
+    pub google_callback_url: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -115,7 +128,6 @@ impl Config {
         Config {
             server_host: "127.0.0.1".to_string(),
             server_port: 8000,
-            proxy_api_key: String::new(),
             kiro_region: "us-east-1".to_string(),
             streaming_timeout: 300,
             token_refresh_threshold: 300,
@@ -136,6 +148,9 @@ impl Config {
             tls_key_path: None,
             web_ui_enabled: true,
             database_url: None,
+            google_client_id: String::new(),
+            google_client_secret: String::new(),
+            google_callback_url: String::new(),
         }
     }
 
@@ -177,18 +192,39 @@ impl Config {
 
         config.database_url = args.database_url;
 
+        config.google_client_id = args.google_client_id;
+        config.google_client_secret = args.google_client_secret;
+        config.google_callback_url = args.google_callback_url;
+
         Ok(config)
     }
 
     /// Validate configuration (bootstrap-level checks only).
     ///
-    /// DB-managed fields (proxy_api_key, region, etc.) are NOT validated here
+    /// DB-managed fields (region, etc.) are NOT validated here
     /// because the gateway may be starting in setup mode with no config yet.
     pub fn validate(&self) -> Result<()> {
         if self.dashboard && !std::io::stdout().is_terminal() {
             anyhow::bail!(
                 "--dashboard requires a terminal (TTY). Cannot run dashboard mode when stdout is not a terminal."
             );
+        }
+
+        // Validate Google SSO configuration
+        if self.web_ui_enabled && self.google_client_id.is_empty() {
+            anyhow::bail!(
+                "GOOGLE_CLIENT_ID is required when web UI is enabled. \
+                 Google SSO is the only auth path — the gateway is unusable without it."
+            );
+        }
+        if !self.google_client_id.is_empty() && self.google_callback_url.is_empty() {
+            anyhow::bail!(
+                "GOOGLE_CALLBACK_URL is required when GOOGLE_CLIENT_ID is set. \
+                 No default is provided because SERVER_HOST=0.0.0.0 in Docker makes any auto-derived default broken."
+            );
+        }
+        if !self.google_client_id.is_empty() && self.google_client_secret.is_empty() {
+            anyhow::bail!("GOOGLE_CLIENT_SECRET is required when GOOGLE_CLIENT_ID is set.");
         }
 
         // Validate TLS configuration
@@ -374,9 +410,13 @@ mod tests {
         assert_ne!(FakeReasoningHandling::Remove, FakeReasoningHandling::Pass);
     }
 
+    /// Create a test config with Google SSO fields populated so validation passes.
     fn create_test_config(server_host: &str) -> Config {
         Config {
             server_host: server_host.to_string(),
+            google_client_id: "test-client-id".to_string(),
+            google_client_secret: "test-client-secret".to_string(),
+            google_callback_url: "http://localhost:8000/_ui/api/auth/google/callback".to_string(),
             ..Config::with_defaults()
         }
     }
@@ -386,13 +426,15 @@ mod tests {
         let config = Config::with_defaults();
         assert_eq!(config.server_host, "127.0.0.1");
         assert_eq!(config.server_port, 8000);
-        assert_eq!(config.proxy_api_key, "");
         assert_eq!(config.kiro_region, "us-east-1");
         assert_eq!(config.debug_mode, DebugMode::Off);
         assert!(config.fake_reasoning_enabled);
         assert!(config.truncation_recovery);
         assert!(config.tls_cert_path.is_none());
         assert!(config.tls_key_path.is_none());
+        assert_eq!(config.google_client_id, "");
+        assert_eq!(config.google_client_secret, "");
+        assert_eq!(config.google_callback_url, "");
     }
 
     #[test]
@@ -400,8 +442,68 @@ mod tests {
         // TLS is always on, so any host should pass validation
         for host in &["127.0.0.1", "::1", "0.0.0.0", "192.168.1.100", "localhost"] {
             let config = create_test_config(host);
-            assert!(config.validate().is_ok(), "validate() failed for host '{}'", host);
+            assert!(
+                config.validate().is_ok(),
+                "validate() failed for host '{}'",
+                host
+            );
         }
+    }
+
+    #[test]
+    fn test_validate_google_client_id_required_when_web_ui_enabled() {
+        let config = Config {
+            web_ui_enabled: true,
+            google_client_id: String::new(),
+            ..Config::with_defaults()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("GOOGLE_CLIENT_ID"));
+    }
+
+    #[test]
+    fn test_validate_google_callback_url_required() {
+        let config = Config {
+            web_ui_enabled: true,
+            google_client_id: "some-id".to_string(),
+            google_client_secret: "some-secret".to_string(),
+            google_callback_url: String::new(),
+            ..Config::with_defaults()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("GOOGLE_CALLBACK_URL"));
+    }
+
+    #[test]
+    fn test_validate_google_secret_required() {
+        let config = Config {
+            web_ui_enabled: true,
+            google_client_id: "some-id".to_string(),
+            google_client_secret: String::new(),
+            google_callback_url: "http://localhost:8000/callback".to_string(),
+            ..Config::with_defaults()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("GOOGLE_CLIENT_SECRET"));
+    }
+
+    #[test]
+    fn test_validate_google_not_required_when_web_ui_disabled() {
+        let config = Config {
+            web_ui_enabled: false,
+            google_client_id: String::new(),
+            ..Config::with_defaults()
+        };
+        assert!(config.validate().is_ok());
     }
 
     #[test]
