@@ -32,6 +32,15 @@ struct KiroSetupResponse {
     interval: u64,
 }
 
+/// Request for POST /kiro/setup
+#[derive(Deserialize, Default)]
+struct KiroSetupRequest {
+    #[serde(default)]
+    start_url: Option<String>,
+    #[serde(default)]
+    region: Option<String>,
+}
+
 /// Request for POST /kiro/poll
 #[derive(Deserialize)]
 struct KiroPollRequest {
@@ -86,7 +95,10 @@ async fn kiro_status(
 async fn kiro_setup(
     State(state): State<AppState>,
     Extension(_session): Extension<SessionInfo>,
+    body: Option<Json<KiroSetupRequest>>,
 ) -> Result<Json<KiroSetupResponse>, ApiError> {
+    let body = body.map(|b| b.0).unwrap_or_default();
+
     let config_db = state
         .config_db
         .as_ref()
@@ -101,27 +113,80 @@ async fn kiro_setup(
         .get("oauth_client_secret")
         .await
         .map_err(ApiError::Internal)?;
-    let sso_region = config_db
+    // Request body overrides DB values for region and start_url
+    let sso_region = body.region.or(config_db
         .get("oauth_sso_region")
         .await
-        .map_err(ApiError::Internal)?
+        .map_err(ApiError::Internal)?)
         .unwrap_or_else(|| "us-east-1".to_string());
-    let start_url = config_db
+    let start_url = body.start_url.or(config_db
         .get("oauth_start_url")
         .await
-        .map_err(ApiError::Internal)?
+        .map_err(ApiError::Internal)?)
         .unwrap_or_default();
+
+    let http_client = reqwest::Client::new();
 
     let (client_id, client_secret) = match (client_id, client_secret) {
         (Some(id), Some(secret)) => (id, secret),
         _ => {
-            return Err(ApiError::ValidationError(
-                "OAuth client not configured. Complete initial Kiro setup first.".to_string(),
-            ));
+            // Auto-register OAuth client with AWS SSO OIDC
+            tracing::info!("OAuth client not configured, registering with AWS SSO OIDC");
+            let start_url_opt = if start_url.is_empty() {
+                None
+            } else {
+                Some(start_url.as_str())
+            };
+            let registration = oauth::register_client(
+                &http_client,
+                &sso_region,
+                "device",
+                None,
+                start_url_opt,
+            )
+            .await
+            .map_err(ApiError::Internal)?;
+
+            // Persist credentials for future use
+            config_db
+                .set("oauth_client_id", &registration.client_id, "kiro_setup")
+                .await
+                .map_err(ApiError::Internal)?;
+            config_db
+                .set(
+                    "oauth_client_secret",
+                    &registration.client_secret,
+                    "kiro_setup",
+                )
+                .await
+                .map_err(ApiError::Internal)?;
+            config_db
+                .set(
+                    "oauth_client_secret_expires_at",
+                    &registration.client_secret_expires_at.to_string(),
+                    "kiro_setup",
+                )
+                .await
+                .map_err(ApiError::Internal)?;
+            config_db
+                .set("oauth_sso_region", &sso_region, "kiro_setup")
+                .await
+                .map_err(ApiError::Internal)?;
+            config_db
+                .set("oauth_start_url", &start_url, "kiro_setup")
+                .await
+                .map_err(ApiError::Internal)?;
+
+            tracing::info!(
+                client_id = %registration.client_id,
+                region = %sso_region,
+                "OAuth client registered successfully"
+            );
+
+            (registration.client_id, registration.client_secret)
         }
     };
 
-    let http_client = reqwest::Client::new();
     let device_auth = oauth::start_device_authorization(
         &http_client,
         &sso_region,
