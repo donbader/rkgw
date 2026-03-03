@@ -6,13 +6,13 @@ nav_order: 10
 
 # Web Dashboard
 
-The Kiro Gateway includes a built-in web dashboard served as a React single-page application (SPA) at `/_ui/`. It provides a browser-based interface for initial setup, configuration management, real-time metrics monitoring, and log streaming.
+The Kiro Gateway includes a web dashboard served as a React single-page application (SPA) at `/_ui/`. It provides a browser-based interface for initial setup, user management, configuration, real-time metrics monitoring, and log streaming.
 
 ---
 
 ## Overview
 
-The web dashboard is embedded directly into the gateway binary using `rust-embed`, meaning there are no external files to serve — the compiled React assets are baked into the executable at build time. The dashboard is enabled by default (controlled by the `WEB_UI` environment variable or `--web-ui` CLI flag).
+The frontend is a React 19 SPA built with Vite and TypeScript, served as static files by nginx. Nginx also handles TLS termination and reverse-proxies API requests to the Rust backend. Authentication uses Google SSO with PKCE for web UI access, and per-user API keys for programmatic access.
 
 ```mermaid
 flowchart TB
@@ -21,112 +21,153 @@ flowchart TB
         Config[Config Manager]
         Metrics[Metrics Dashboard]
         Logs[Log Viewer]
+        Users[User Management]
+        Keys[API Key Management]
     end
 
-    subgraph Gateway["Kiro Gateway (/_ui/)"]
-        SPA[SPA Server<br/>rust-embed]
+    subgraph Nginx["nginx (:443/:80)"]
+        Static["/_ui/* → static files"]
+        Proxy["/_ui/api/* → backend:8000"]
+        ProxyV1["/v1/* → backend:8000"]
+        Certbot["/.well-known/ → certbot"]
+    end
+
+    subgraph Backend["Rust Backend (plain HTTP :8000)"]
         subgraph PublicAPI["Public API (no auth)"]
-            SetupAPI[POST /setup]
-            ConfigRead[GET /config]
-            SchemaAPI[GET /config/schema]
-            OAuthAPI[OAuth Endpoints]
+            StatusAPI[GET /status]
+            GoogleAuth[GET /auth/google]
+            GoogleCB[GET /auth/google/callback]
         end
-        subgraph AuthedAPI["Authenticated API"]
+        subgraph SessionAPI["Session-Authenticated API"]
             MetricsAPI[GET /metrics]
             SystemAPI[GET /system]
             ModelsAPI[GET /models]
             LogsAPI[GET /logs]
-            ConfigWrite[PUT /config]
+            ConfigRead[GET /config]
+            SchemaAPI[GET /config/schema]
             HistoryAPI[GET /config/history]
+            AuthMe[GET /auth/me]
             StreamMetrics[SSE /stream/metrics]
             StreamLogs[SSE /stream/logs]
         end
+        subgraph AdminAPI["Admin API (+ CSRF)"]
+            ConfigWrite[PUT /config]
+            UserMgmt[User Management]
+            DomainAllow[Domain Allowlist]
+        end
     end
 
-    Browser -->|"GET /_ui/"| SPA
-    Setup --> SetupAPI
-    Setup --> OAuthAPI
+    Browser -->|HTTPS| Nginx
+    Static --> Browser
+    Proxy --> Backend
+    Setup --> GoogleAuth
     Config --> ConfigRead
     Config --> ConfigWrite
     Metrics --> StreamMetrics
     Logs --> StreamLogs
+    Users --> UserMgmt
+    Keys -->|"API Key CRUD"| SessionAPI
 ```
 
 ---
 
 ## Accessing the Dashboard
 
-Once the gateway is running, open your browser and navigate to:
+Once the gateway is running via `docker compose up -d`, open your browser and navigate to:
 
 ```
-https://localhost:3000/_ui/
+https://your-domain/_ui/
 ```
 
-Replace `localhost:3000` with your gateway's actual host and port. If TLS is enabled (the default for non-Docker deployments), you'll need to accept the self-signed certificate warning on first visit.
+Replace `your-domain` with the domain configured in your `.env` file. TLS is handled by nginx using Let's Encrypt certificates provisioned via certbot.
+
+---
+
+## Authentication
+
+The web dashboard uses **Google SSO** with PKCE (Proof Key for Code Exchange) and OpenID Connect for authentication. There is no password or API key login for the web UI.
+
+### Login Flow
+
+1. Navigate to `/_ui/` — the SPA redirects unauthenticated users to the login page
+2. Click "Sign in with Google" — initiates the PKCE flow
+3. Authenticate with your Google account — the OAuth callback returns to the gateway
+4. A session cookie (`kgw_session`) is set with a 24-hour TTL
+5. A CSRF token cookie is also set for mutation protection
+
+### Roles
+
+The gateway supports two user roles:
+
+| Role | Capabilities |
+|------|-------------|
+| **Admin** | Full access: view metrics/logs, manage configuration, manage users, manage domain allowlist, manage own API keys and Kiro tokens |
+| **User** | Standard access: view metrics/logs, view configuration, manage own API keys and Kiro tokens |
+
+The first user to complete Google SSO setup is automatically assigned the **Admin** role.
+
+### Session Management
+
+- Sessions are stored in an in-memory cache (`session_cache` in AppState)
+- Session cookie: `kgw_session` with 24-hour TTL
+- CSRF token: separate cookie, required for all mutation endpoints (POST, PUT, DELETE)
+- Use `GET /_ui/api/auth/me` to check current session status and user info
+- Use `POST /_ui/api/auth/logout` to end the session
 
 ---
 
 ## Setup Wizard
 
-When the gateway starts for the first time without any stored configuration, the dashboard presents a multi-step setup wizard. The proxy API endpoints (`/v1/*`) return `503 Service Unavailable` until setup is complete, enforced by the `setup_guard` middleware.
+When the gateway starts for the first time with no admin user in the database, it enters **setup-only mode**. The proxy API endpoints (`/v1/*`) return `503 Service Unavailable` until setup is complete.
 
 ### Setup Flow
 
 ```mermaid
 sequenceDiagram
     participant User as Browser
+    participant Nginx as nginx
     participant UI as React SPA
-    participant GW as Gateway API
-    participant AWS as AWS SSO OIDC
+    participant GW as Backend API
+    participant Google as Google OAuth
 
-    User->>UI: Navigate to /_ui/
-    UI->>GW: GET /_ui/api/config
+    User->>Nginx: Navigate to https://domain/_ui/
+    Nginx->>UI: Serve React SPA
+    UI->>GW: GET /_ui/api/status
     GW-->>UI: {setup_complete: false}
     UI->>User: Show Setup Wizard
 
-    Note over User,UI: Step 1: Set API Key
-    User->>UI: Enter proxy_api_key
+    Note over User,Google: Google SSO with PKCE
+    User->>UI: Click "Sign in with Google"
+    UI->>GW: GET /_ui/api/auth/google
+    GW-->>User: Redirect to Google OAuth
+    User->>Google: Authenticate & authorize
+    Google-->>GW: GET /_ui/api/auth/google/callback (code + state)
+    GW->>Google: Exchange code for tokens (with PKCE verifier)
+    Google-->>GW: ID token + access token
+    GW-->>GW: Create user (admin role), create session
+    GW-->>User: Set session cookie, redirect to /_ui/
 
-    Note over User,UI: Step 2: OAuth Authentication
-    UI->>GW: POST /_ui/api/oauth/start
-    GW->>AWS: Register OIDC Client
-    AWS-->>GW: client_id, client_secret
-    GW-->>UI: {verification_uri, user_code, device_code}
-    UI->>User: Show device code + link
-    User->>AWS: Open link, enter code, authorize
-
-    loop Poll for completion
-        UI->>GW: POST /_ui/api/oauth/device/poll
-        GW->>AWS: Poll token endpoint
-        AWS-->>GW: authorization_pending / tokens
-    end
-
-    GW-->>UI: {access_token, refresh_token}
-
-    Note over User,UI: Step 3: Complete Setup
-    UI->>GW: POST /_ui/api/setup
-    GW-->>UI: {success: true}
-    UI->>User: Setup complete! Redirect to dashboard
+    Note over User,UI: Setup complete
+    UI->>GW: GET /_ui/api/status
+    GW-->>UI: {setup_complete: true}
+    UI->>User: Show dashboard
 ```
 
 ### Step-by-Step Walkthrough
 
-1. **API Key Configuration** — Set the `proxy_api_key` that clients will use to authenticate with the gateway. This password protects all `/v1/*` proxy endpoints.
+1. **Navigate to the web UI** — The SPA detects that setup is incomplete and shows the setup wizard
 
-2. **OAuth Device Code Authentication** — The wizard initiates an AWS SSO OIDC device code flow:
-   - Click "Start Authentication" to begin
-   - A verification URL and user code are displayed
-   - Open the URL in your browser and enter the code
-   - Authorize the application in AWS SSO
-   - The wizard automatically polls for completion
+2. **Sign in with Google** — Click the sign-in button to start the Google SSO flow. The gateway uses PKCE for security. You must use a Google account that matches the allowed domain (if domain allowlisting is configured).
 
-3. **Finalize Setup** — Once authentication succeeds, the wizard saves all configuration to PostgreSQL and marks setup as complete. The proxy endpoints become available immediately.
+3. **First user becomes admin** — After successful Google authentication, the first user is created with the **Admin** role. Setup is marked complete, and the proxy endpoints (`/v1/*`) become available.
+
+4. **Configure Kiro credentials** — After setup, navigate to the Kiro token management section to provide your Kiro (AWS CodeWhisperer) credentials for API proxying.
 
 ---
 
 ## Configuration Management
 
-After setup, the dashboard provides a configuration panel for viewing and modifying gateway settings.
+After setup, admin users can manage gateway configuration through the dashboard.
 
 ### Viewing Configuration
 
@@ -134,7 +175,7 @@ The current configuration is available via `GET /_ui/api/config`, which returns 
 
 ### Updating Configuration
 
-Configuration changes are submitted via `PUT /_ui/api/config` with a JSON body containing the fields to update:
+Configuration changes are submitted via `PUT /_ui/api/config` (admin-only, requires CSRF token) with a JSON body containing the fields to update:
 
 ```json
 {
@@ -144,20 +185,38 @@ Configuration changes are submitted via `PUT /_ui/api/config` with a JSON body c
 }
 ```
 
-### Hot-Reload vs Restart-Required
-
-Not all configuration changes take effect immediately. The gateway classifies each setting:
-
-| Change Type | Settings | Behavior |
-|---|---|---|
-| **Hot-Reload** | `log_level`, `debug_mode`, `fake_reasoning_enabled`, `fake_reasoning_max_tokens`, `truncation_recovery`, `tool_description_max_length`, `first_token_timeout` | Applied immediately, no restart needed |
-| **Requires Restart** | `server_host`, `server_port`, `tls_cert_path`, `tls_key_path`, `proxy_api_key` | Saved to database, applied on next gateway restart |
-
-The dashboard UI indicates which settings require a restart after modification.
-
 ### Configuration History
 
 The `GET /_ui/api/config/history` endpoint returns a log of all configuration changes, allowing you to track when and what was modified.
+
+---
+
+## User & Access Management
+
+### Per-User API Keys
+
+Each user can create their own API keys for programmatic access to the `/v1/*` proxy endpoints. API keys are managed through the dashboard or via the `/_ui/api/` key management endpoints.
+
+- Keys are stored as SHA-256 hashes in PostgreSQL
+- Keys are cached in memory (`api_key_cache`) for fast lookup
+- Clients authenticate with `Authorization: Bearer <api-key>` or `x-api-key: <api-key>`
+- Each API key is associated with the user who created it, enabling per-user Kiro credential resolution
+
+### Per-User Kiro Tokens
+
+Each user manages their own Kiro (AWS CodeWhisperer) credentials. When a request arrives with a user's API key, the gateway uses that user's Kiro tokens to proxy the request.
+
+- Kiro tokens are cached in memory (`kiro_token_cache`) with a 4-minute TTL
+- Tokens auto-refresh before expiry
+- Managed via the Kiro token routes in the dashboard
+
+### Domain Allowlist (Admin)
+
+Admins can configure a domain allowlist to restrict which Google accounts can sign in. Only email addresses matching an allowed domain will be permitted to create accounts.
+
+### User Management (Admin)
+
+Admins can view all users, change roles (admin/user), and remove users through the user management panel.
 
 ---
 
@@ -167,7 +226,7 @@ The metrics dashboard provides live monitoring of gateway performance via Server
 
 ### Metrics Stream
 
-Connect to `GET /_ui/api/stream/metrics` to receive metrics snapshots every 1 second. Each event contains:
+Connect to `GET /_ui/api/stream/metrics` (requires session auth) to receive metrics snapshots every 1 second. Each event contains:
 
 ```json
 {
@@ -206,7 +265,7 @@ The log viewer provides real-time log streaming via SSE at `GET /_ui/api/stream/
 
 ### How It Works
 
-The gateway maintains an in-memory log buffer (`log_buffer` in AppState). The SSE endpoint polls this buffer every 500ms and emits only new entries since the last check. Each log event contains an array of new entries:
+The gateway captures logs via a tracing layer (`log_capture` module) into an in-memory buffer (`log_buffer` in AppState). The SSE endpoint polls this buffer and emits new entries. Each log event contains an array of new entries:
 
 ```json
 [
@@ -237,38 +296,58 @@ All web UI API endpoints are nested under `/_ui/api/`.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/_ui/api/config` | Get current configuration |
-| `GET` | `/_ui/api/config/schema` | Get configuration field schema |
-| `POST` | `/_ui/api/setup` | Complete initial setup |
-| `POST` | `/_ui/api/oauth/start` | Start OAuth device code flow |
-| `GET` | `/_ui/api/oauth/callback` | OAuth callback handler |
-| `POST` | `/_ui/api/oauth/device/poll` | Poll OAuth device code status |
+| `GET` | `/_ui/api/status` | Gateway status (includes `setup_complete` flag) |
+| `GET` | `/_ui/api/auth/google` | Initiate Google SSO PKCE flow |
+| `GET` | `/_ui/api/auth/google/callback` | Google OAuth callback handler |
 
-### Authenticated Endpoints
+### Session-Authenticated Endpoints
 
-These require the `proxy_api_key` via `Authorization: Bearer <key>` or `x-api-key: <key>` header.
+These require a valid `kgw_session` cookie (obtained via Google SSO).
 
 | Method | Path | Description |
 |---|---|---|
+| `GET` | `/_ui/api/auth/me` | Current user info and session status |
 | `GET` | `/_ui/api/metrics` | Current metrics snapshot |
 | `GET` | `/_ui/api/system` | System info (CPU, memory, uptime) |
 | `GET` | `/_ui/api/models` | List available models |
 | `GET` | `/_ui/api/logs` | Get log buffer contents |
-| `PUT` | `/_ui/api/config` | Update configuration |
+| `GET` | `/_ui/api/config` | Get current configuration |
+| `GET` | `/_ui/api/config/schema` | Configuration field schema |
 | `GET` | `/_ui/api/config/history` | Configuration change history |
-| `GET` | `/_ui/api/stream/metrics` | SSE metrics stream (1s interval) |
-| `GET` | `/_ui/api/stream/logs` | SSE log stream (500ms poll) |
+| `GET` | `/_ui/api/stream/metrics` | SSE metrics stream |
+| `GET` | `/_ui/api/stream/logs` | SSE log stream |
+
+### Mutation Endpoints (Session + CSRF Token)
+
+These require a valid session and CSRF token.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/_ui/api/auth/logout` | End current session |
+| `*` | `/_ui/api/kiro/*` | Kiro token management (per-user) |
+| `*` | `/_ui/api/keys/*` | API key management (per-user) |
+
+### Admin-Only Endpoints (Session + CSRF + Admin Role)
+
+| Method | Path | Description |
+|---|---|---|
+| `PUT` | `/_ui/api/config` | Update gateway configuration |
+| `*` | `/_ui/api/domains/*` | Domain allowlist management |
+| `*` | `/_ui/api/users/*` | User management |
 
 ---
 
 ## Architecture
 
-The web UI is implemented across four Rust modules:
+The web UI is implemented across several Rust modules in `backend/src/web_ui/`:
 
-- **`web_ui/mod.rs`** — Router construction, separating public and authenticated routes, plus the `setup_guard` middleware
-- **`web_ui/routes.rs`** — All HTTP handlers, including the embedded SPA server using `rust-embed`
-- **`web_ui/config_api.rs`** — Configuration validation, change classification (hot-reload vs restart), and field descriptions
-- **`web_ui/config_db.rs`** — PostgreSQL persistence layer for configuration key-value storage
-- **`web_ui/sse.rs`** — Server-Sent Events streams for real-time metrics and log delivery
+- **`mod.rs`** — Router construction, separating public, session-authenticated, and admin routes
+- **`routes.rs`** — API HTTP handlers
+- **`google_auth.rs`** — Google SSO with PKCE flow (OpenID Connect)
+- **`session.rs`** — Session cookie management and CSRF validation
+- **`api_keys.rs`** — Per-user API key CRUD (create, list, revoke)
+- **`user_kiro.rs`** — Per-user Kiro token management
+- **`config_api.rs`** — Configuration validation, change classification, and field descriptions
+- **`config_db.rs`** — PostgreSQL persistence layer for configuration key-value storage
 
-The React frontend source lives in `web-ui/` (Vite + TypeScript) and is compiled into `web-ui/dist/` during the build process. The `rust-embed` macro embeds these static assets directly into the binary, so the gateway is a single self-contained executable.
+The React frontend source lives in `frontend/` (Vite + TypeScript). Built assets in `frontend/dist/` are served by nginx in the frontend container. The backend only handles API requests — it does not serve static files.

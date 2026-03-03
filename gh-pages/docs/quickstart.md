@@ -26,64 +26,76 @@ cd rkgw
 cp .env.example .env
 ```
 
-Edit `.env` and set a strong password:
+Edit `.env` and fill in your values:
 
 ```bash
-PROXY_API_KEY=my-super-secret-key-change-me
-KIRO_REGION=us-east-1
+DOMAIN=gateway.example.com
+EMAIL=admin@example.com
+POSTGRES_PASSWORD=change-me
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
 ```
 
-## 2. Start with Docker Compose
+You need a **Google OAuth Client ID** from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) with the redirect URI set to your callback URL above.
+
+## 2. Provision TLS certificates
+
+```bash
+chmod +x init-certs.sh
+./init-certs.sh
+```
+
+This obtains a Let's Encrypt certificate for your domain. Your domain must have DNS pointing to this server.
+
+## 3. Start with Docker Compose
 
 ```bash
 docker compose up -d --build
 ```
 
-This starts PostgreSQL and the gateway. The first build takes a few minutes (Rust compilation + React build). Watch the logs:
+This starts four services: PostgreSQL, the Rust backend, nginx (TLS termination), and certbot (certificate renewal). The first build takes a few minutes.
+
+Watch the logs:
 
 ```bash
-docker compose logs -f gateway
+docker compose logs -f backend
 ```
 
 Wait until you see:
 
 ```
 Setup not complete — starting in setup-only mode
-Server listening on https://0.0.0.0:9001
+Server listening on http://0.0.0.0:8000
 ```
 
-## 3. Complete setup via Web UI
+## 4. Complete setup via Web UI
 
-Open `https://localhost:9001/_ui/` in your browser (accept the self-signed certificate warning).
+Open `https://your-domain.com/_ui/` in your browser.
 
-The setup wizard walks you through the OAuth device code flow:
+1. Click **Sign in with Google** — the first user gets the Admin role
+2. Add your **Kiro credentials** via the AWS SSO device code flow
+3. Create a **personal API key** in the API Keys section
 
-1. Enter your **gateway password**, **AWS SSO Start URL**, and **region**
-2. Click start — you'll get a **user code** and a **verification URL**
-3. Open the verification URL, enter the code, and authorize
-4. The gateway detects authorization and saves your credentials
-
-Once complete, the dashboard appears and the gateway is fully operational.
-
-## 4. Verify it works
+## 5. Verify it works
 
 ```bash
 # Health check
-curl -k https://localhost:9001/health
+curl https://your-domain.com/health
 # → {"status":"ok"}
 
 # List models
-curl -k -H "Authorization: Bearer my-super-secret-key-change-me" \
-  https://localhost:9001/v1/models
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  https://your-domain.com/v1/models
 ```
 
-## 5. Make your first API call
+## 6. Make your first API call
 
 ### OpenAI format
 
 ```bash
-curl -k -X POST https://localhost:9001/v1/chat/completions \
-  -H "Authorization: Bearer my-super-secret-key-change-me" \
+curl -X POST https://your-domain.com/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "claude-sonnet-4",
@@ -97,8 +109,8 @@ curl -k -X POST https://localhost:9001/v1/chat/completions \
 ### Anthropic format
 
 ```bash
-curl -k -X POST https://localhost:9001/v1/messages \
-  -H "x-api-key: my-super-secret-key-change-me" \
+curl -X POST https://your-domain.com/v1/messages \
+  -H "x-api-key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
@@ -117,5 +129,5 @@ You should see a streaming SSE response with the model's reply.
 
 ## What's next?
 
-- [Getting Started](getting-started.html) — Full installation guide with build-from-source instructions, OAuth flow details, and SDK integration examples
-- [Configuration Reference](configuration.html) — All environment variables, CLI arguments, TLS setup, and tuning options
+- [Getting Started](getting-started.html) — Full walkthrough with Google OAuth setup, Kiro credential flow, and SDK integration examples
+- [Configuration Reference](configuration.html) — Environment variables and runtime settings

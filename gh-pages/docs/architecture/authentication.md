@@ -9,7 +9,7 @@ permalink: /architecture/authentication/
 # Authentication System
 {: .no_toc }
 
-Kiro Gateway uses a two-layer authentication model: a client-facing API key (`PROXY_API_KEY`) protects the gateway itself, while an OAuth device code flow via AWS SSO OIDC authenticates the gateway against the Kiro backend. This page covers both layers in detail.
+Kiro Gateway uses a dual authentication model: per-user API keys protect the proxy endpoints (`/v1/*`), while Google SSO with PKCE authenticates users for the web UI (`/_ui/api/*`). The backend then uses per-user Kiro credentials (stored in PostgreSQL) to authenticate against the AWS Kiro API.
 
 ## Table of Contents
 {: .no_toc .text-delta }
@@ -23,224 +23,201 @@ Kiro Gateway uses a two-layer authentication model: a client-facing API key (`PR
 
 ```mermaid
 flowchart TB
-    subgraph ClientAuth["Layer 1: Client Authentication"]
+    subgraph ProxyAuth["API Key Authentication (/v1/*)"]
         CLIENT["AI Client<br/>(Cursor, Claude Code, etc.)"]
         MW["Auth Middleware"]
-        CLIENT -->|"Authorization: Bearer {PROXY_API_KEY}<br/>or x-api-key: {PROXY_API_KEY}"| MW
-        MW -->|Valid| HANDLER["Route Handler"]
-        MW -->|Invalid| REJECT["401 Unauthorized"]
+        CLIENT -->|"Authorization: Bearer {api-key}<br/>or x-api-key: {api-key}"| MW
+        MW -->|"SHA-256 hash → cache/DB lookup"| LOOKUP["Identify user + key"]
+        LOOKUP -->|Valid| INJECT["Inject per-user Kiro creds"]
+        LOOKUP -->|Invalid| REJECT["401 Unauthorized"]
+        INJECT --> HANDLER["Route Handler"]
     end
 
-    subgraph BackendAuth["Layer 2: Backend Authentication"]
+    subgraph WebAuth["Google SSO Authentication (/_ui/api/*)"]
+        BROWSER["Web Browser"]
+        SESSION["Session Middleware"]
+        BROWSER -->|"Cookie: kgw_session={uuid}"| SESSION
+        SESSION -->|"Lookup in session_cache"| SESSION_CHECK{"Valid session?"}
+        SESSION_CHECK -->|Yes| WEBHANDLER["Web UI Handler"]
+        SESSION_CHECK -->|No| LOGIN["Redirect to Google SSO"]
+    end
+
+    subgraph BackendAuth["Backend Authentication (Kiro API)"]
         HANDLER --> AUTHMGR["AuthManager"]
-        AUTHMGR -->|"get_access_token()"| TOKEN_CHECK{"Token<br/>expiring soon?"}
-        TOKEN_CHECK -->|No| USE_TOKEN["Use cached token"]
-        TOKEN_CHECK -->|Yes| REFRESH["Refresh via AWS SSO OIDC"]
+        AUTHMGR -->|"get per-user token"| TOKEN_CACHE{"Token in cache<br/>(4-min TTL)?"}
+        TOKEN_CACHE -->|Yes| USE_TOKEN["Use cached token"]
+        TOKEN_CACHE -->|No| REFRESH["Refresh via AWS SSO OIDC"]
         REFRESH --> OIDC["oidc.{region}.amazonaws.com"]
-        OIDC --> UPDATE["Update cached token"]
+        OIDC --> UPDATE["Update token cache"]
         UPDATE --> USE_TOKEN
         USE_TOKEN --> KIRO["Kiro API<br/>(Bearer token)"]
     end
 
     subgraph Storage["Credential Storage"]
         PG[("PostgreSQL")]
-        AUTHMGR -.->|"Load credentials"| PG
-        WEBUI["Web UI<br/>(Device Code Flow)"] -->|"Store tokens"| PG
+        AUTHMGR -.->|"Load per-user credentials"| PG
+        WEBHANDLER -->|"Manage users, API keys"| PG
     end
 ```
 
 ---
 
-## Layer 1: Client-Facing Authentication
+## API Key Authentication (Proxy Endpoints)
 
-The auth middleware (`src/middleware/mod.rs:auth_middleware()`) protects all API routes. It accepts two authentication methods:
+The auth middleware (`backend/src/middleware/mod.rs`) protects all `/v1/*` proxy routes using per-user API keys.
 
-### Bearer Token
-```
-Authorization: Bearer {PROXY_API_KEY}
-```
+### How It Works
 
-### API Key Header
-```
-x-api-key: {PROXY_API_KEY}
-```
+1. Client sends a request with an API key via `Authorization: Bearer {key}` or `x-api-key: {key}` header
+2. Middleware SHA-256 hashes the key
+3. Hash is looked up in `api_key_cache` (in-memory DashMap) for fast path
+4. On cache miss, hash is looked up in PostgreSQL
+5. If found, the user ID and key ID are extracted and per-user Kiro credentials are injected into the request context
+6. If not found, a `401 Unauthorized` JSON error is returned
 
-The middleware checks both headers in order. If neither matches the configured `PROXY_API_KEY`, a `401 Unauthorized` response is returned with a JSON error body.
+### Per-User API Keys
 
-Routes that bypass authentication:
-- `GET /` — Simple health check (for load balancers)
-- `GET /health` — Detailed health check
-- `/_ui/*` — Web UI routes (protected by their own session logic)
+Each user can create multiple API keys through the web UI. Keys are:
+- Generated as random strings and shown to the user once at creation time
+- Stored as SHA-256 hashes in PostgreSQL (the plaintext key is never stored)
+- Cached in `api_key_cache: Arc<DashMap<String, (Uuid, Uuid)>>` mapping hash to `(user_id, key_id)`
+- Individually revocable without affecting other keys
 
-The `PROXY_API_KEY` is read from the shared `Config` via `RwLock`, which means it can be changed at runtime through the Web UI without restarting the gateway.
+### Routes That Bypass API Key Auth
+
+- `GET /` — Status JSON (for load balancers)
+- `GET /health` — Health check
+- `/_ui/api/*` — Web UI API routes (protected by session auth instead)
 
 ---
 
-## Layer 2: Backend Authentication (AWS SSO OIDC)
+## Google SSO Authentication (Web UI)
 
-The gateway authenticates against the Kiro API using OAuth 2.0 tokens obtained through the AWS SSO OIDC device code flow. The `AuthManager` (`src/auth/manager.rs`) manages the complete token lifecycle.
+The web UI uses Google SSO with PKCE + OpenID Connect for user authentication. This is implemented in `backend/src/web_ui/google_auth.rs`.
 
-### OAuth Device Code Flow
-
-The initial authentication is performed through the Web UI. The user triggers a device code flow that registers an OAuth client, obtains a device code, and polls for authorization.
+### OAuth Flow
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant WebUI as Web UI (Browser)
-    participant Gateway as Kiro Gateway
-    participant OIDC as AWS SSO OIDC
-    participant AWS as AWS Login Page
+    participant Browser
+    participant Nginx as nginx (frontend)
+    participant Backend as Backend API
+    participant Google as Google OAuth
 
-    User->>WebUI: Click "Login with AWS"
-    WebUI->>Gateway: POST /_ui/api/auth/start
+    User->>Browser: Navigate to /_ui/
+    Browser->>Nginx: GET /_ui/
+    Nginx->>Browser: React SPA
 
-    Gateway->>OIDC: POST /client/register
-    Note right of Gateway: clientName: "kiro-gateway"<br/>clientType: "public"<br/>grantTypes: ["device_code", "refresh_token"]<br/>scopes: ["codewhisperer:*"]
-    OIDC-->>Gateway: {client_id, client_secret}
+    User->>Browser: Click "Sign in with Google"
+    Browser->>Backend: GET /_ui/api/auth/google
 
-    Gateway->>OIDC: POST /device_authorization
-    Note right of Gateway: clientId, clientSecret,<br/>startUrl (optional)
-    OIDC-->>Gateway: {device_code, user_code,<br/>verification_uri_complete}
+    Backend->>Backend: Generate PKCE code_verifier + code_challenge
+    Backend->>Backend: Generate state parameter
+    Backend->>Backend: Store {code_verifier, state} in oauth_pending (10-min TTL)
+    Backend-->>Browser: 302 Redirect to Google
 
-    Gateway-->>WebUI: {user_code, verification_uri_complete}
-    WebUI->>User: "Enter code: ABCD-EFGH"
-    User->>AWS: Open verification URL
-    User->>AWS: Confirm authorization
+    Browser->>Google: Authorization request with code_challenge
+    User->>Google: Consent + authorize
+    Google-->>Browser: 302 Redirect to callback with code + state
 
-    loop Poll every {interval} seconds
-        Gateway->>OIDC: POST /token (device_code grant)
-        alt authorization_pending
-            OIDC-->>Gateway: Pending
-        else slow_down
-            OIDC-->>Gateway: Slow down (increase interval)
-        else Success
-            OIDC-->>Gateway: {access_token, refresh_token}
-        end
-    end
+    Browser->>Backend: GET /_ui/api/auth/google/callback?code=...&state=...
+    Backend->>Backend: Verify state matches oauth_pending entry
+    Backend->>Google: Exchange code + code_verifier for tokens
+    Google-->>Backend: {id_token, access_token}
 
-    Gateway->>Gateway: Store credentials in PostgreSQL
-    Note right of Gateway: oauth_client_id<br/>oauth_client_secret<br/>kiro_refresh_token<br/>oauth_sso_region
-
-    Gateway-->>WebUI: Authentication complete
-    WebUI-->>User: "Login successful"
+    Backend->>Backend: Verify id_token (email, email_verified)
+    Backend->>Backend: Create/update user in PostgreSQL
+    Backend->>Backend: Create session in session_cache (24h TTL)
+    Backend-->>Browser: Set-Cookie: kgw_session={uuid} + CSRF cookie
+    Browser-->>User: Redirected to dashboard
 ```
 
-The OAuth module (`src/auth/oauth.rs`) implements all the OIDC protocol operations:
+### Session Management
 
-| Function | Purpose |
-|----------|---------|
-| `register_client()` | Register OAuth client with AWS SSO OIDC |
-| `generate_pkce()` | Generate PKCE code verifier and challenge (for browser flow) |
-| `build_authorize_url()` | Build authorization URL (for browser flow) |
-| `start_device_authorization()` | Initiate device code flow |
-| `poll_device_token()` | Poll for device authorization completion |
-| `exchange_authorization_code()` | Exchange auth code for tokens (browser flow) |
+Sessions are managed by `backend/src/web_ui/session.rs`:
 
-The gateway supports two OAuth flows:
-- **Device code flow** (primary) — Used for headless/CLI setups. The user authorizes on a separate device.
-- **Browser redirect flow** — Uses PKCE (S256) for the authorization code exchange via browser redirect.
+- **Session cookie**: `kgw_session` — HttpOnly, Secure, SameSite=Lax, 24-hour TTL
+- **CSRF cookie**: Separate cookie for CSRF token validation on mutation requests
+- **Session storage**: `session_cache: Arc<DashMap<Uuid, SessionInfo>>` — in-memory, not persisted across restarts
+- **SessionInfo** contains: user ID, email, role (Admin/User), expiry timestamp
 
-### Required OAuth Scopes
+### CSRF Protection
 
-```
-codewhisperer:completions
-codewhisperer:analysis
-codewhisperer:conversations
-```
+All mutation endpoints (POST, PUT, DELETE) under `/_ui/api/*` require a valid CSRF token:
+- The CSRF token is set as a cookie when the session is created
+- Clients must include the token in a request header for mutations
+- This prevents cross-site request forgery attacks against the web UI
+
+### Roles
+
+| Role | Capabilities |
+|------|-------------|
+| Admin | Full access: manage users, update config, manage domain allowlist, all user capabilities |
+| User | View metrics, manage own API keys, manage own Kiro credentials |
+
+The first user to complete Google SSO setup is automatically assigned the Admin role.
 
 ---
 
-## AuthManager Architecture
+## Backend Authentication (Kiro API)
 
-The `AuthManager` struct (`src/auth/manager.rs`) is the central token management component. It provides thread-safe access to credentials and handles automatic token refresh.
+Each user has their own Kiro credentials (refresh token, client ID, client secret) stored in PostgreSQL. The `AuthManager` (`backend/src/auth/manager.rs`) handles per-user token lifecycle.
 
-```mermaid
-classDiagram
-    class AuthManager {
-        -Arc~RwLock~Credentials~~ credentials
-        -Arc~RwLock~Option~String~~~ access_token
-        -Arc~RwLock~Option~DateTime~~~ expires_at
-        -Client client
-        -Option~Arc~ConfigDb~~ config_db
-        -i64 refresh_threshold
-        +new(config_db, threshold) Result~Self~
-        +new_placeholder(region, threshold) Result~Self~
-        +get_access_token() Result~String~
-        +get_region() String
-        +get_profile_arn() Option~String~
-        -is_token_expiring_soon() bool
-        -is_token_expired() bool
-        -refresh_token() Result~()~
-    }
-
-    class Credentials {
-        +String refresh_token
-        +Option~String~ access_token
-        +Option~DateTime~ expires_at
-        +Option~String~ profile_arn
-        +String region
-        +Option~String~ client_id
-        +Option~String~ client_secret
-        +Option~String~ sso_region
-    }
-
-    class TokenData {
-        +String access_token
-        +Option~String~ refresh_token
-        +DateTime expires_at
-        +Option~String~ profile_arn
-    }
-
-    AuthManager --> Credentials : manages
-    AuthManager ..> TokenData : receives from refresh
-```
-
-### Token Refresh Mechanism
-
-The token refresh flow is triggered automatically when `get_access_token()` detects the token is expiring within the `refresh_threshold` (default: 300 seconds / 5 minutes).
+### Per-User Token Flow
 
 ```mermaid
 flowchart TD
-    START["get_access_token()"] --> CHECK{"Token expiring<br/>within threshold?"}
+    REQ["Incoming API request"] --> IDENTIFY["Identify user via API key"]
+    IDENTIFY --> CACHE_CHECK{"Per-user token<br/>in kiro_token_cache?"}
 
-    CHECK -->|No| RETURN["Return cached token"]
+    CACHE_CHECK -->|"Yes (< 4 min old)"| USE["Use cached access token"]
+    CACHE_CHECK -->|No| LOAD["Load user's Kiro credentials from DB"]
 
-    CHECK -->|Yes| REFRESH["refresh_token()"]
-    REFRESH --> OIDC_CALL["POST to AWS SSO OIDC<br/>/token endpoint"]
-    OIDC_CALL --> OIDC_RESULT{Success?}
+    LOAD --> REFRESH["Refresh via AWS SSO OIDC"]
+    REFRESH --> OIDC["POST to oidc.{region}.amazonaws.com/token"]
+    OIDC --> RESULT{Success?}
 
-    OIDC_RESULT -->|Yes| UPDATE["Update access_token,<br/>expires_at, refresh_token"]
-    UPDATE --> RETURN
+    RESULT -->|Yes| CACHE_UPDATE["Store in kiro_token_cache<br/>(4-min TTL)"]
+    CACHE_UPDATE --> USE
 
-    OIDC_RESULT -->|No, 400 error| RELOAD{"Config DB<br/>available?"}
-    RELOAD -->|Yes| RELOAD_CREDS["Reload credentials<br/>from PostgreSQL"]
-    RELOAD_CREDS --> RETRY["Retry OIDC refresh<br/>with fresh credentials"]
-    RETRY --> RETRY_RESULT{Success?}
-    RETRY_RESULT -->|Yes| UPDATE
-    RETRY_RESULT -->|No| DEGRADE
-
-    RELOAD -->|No| DEGRADE
-
-    OIDC_RESULT -->|No, other error| DEGRADE{"Token actually<br/>expired?"}
+    RESULT -->|No| DEGRADE{"Token actually<br/>expired?"}
     DEGRADE -->|No| WARN["Log warning,<br/>use existing token"]
-    WARN --> RETURN
+    WARN --> USE
     DEGRADE -->|Yes| FAIL["Return error:<br/>no valid token"]
+
+    USE --> KIRO["POST to Kiro API<br/>with Bearer token"]
 ```
 
-Key behaviors:
+The `kiro_token_cache: Arc<DashMap<Uuid, (String, String, Instant)>>` maps user IDs to `(access_token, region, cached_at)` tuples. Tokens are refreshed when older than 4 minutes.
 
-1. **Proactive refresh**: Tokens are refreshed before they expire, not after. The 5-minute threshold ensures there's always a valid token available.
+### Kiro Credential Setup
 
-2. **Credential reload on 400**: If the OIDC endpoint returns a 400 error (typically meaning the refresh token was rotated externally), the AuthManager reloads credentials from PostgreSQL and retries. This handles the case where the Web UI re-authenticated while the gateway was running.
+Users configure their Kiro credentials through the web UI. The credentials are stored in PostgreSQL per-user:
 
-3. **Graceful degradation**: If refresh fails but the token hasn't actually expired yet, the gateway continues using the existing token and logs a warning. This prevents transient OIDC outages from causing immediate failures.
+| Field | Description |
+|-------|-------------|
+| `kiro_refresh_token` | OAuth refresh token for Kiro API |
+| `kiro_region` | AWS region for API calls (e.g., `us-east-1`) |
+| `oauth_client_id` | OAuth client ID from AWS SSO OIDC registration |
+| `oauth_client_secret` | OAuth client secret from registration |
+| `oauth_sso_region` | AWS region for the SSO OIDC endpoint |
 
-4. **Thread safety**: All token state is behind `tokio::sync::RwLock`, allowing concurrent reads from multiple request handlers while serializing refresh operations.
+### Token Refresh Mechanism
+
+The token refresh uses AWS SSO OIDC (`backend/src/auth/refresh.rs`):
+
+1. **Proactive refresh**: Tokens are refreshed before they expire. The `kiro_token_cache` 4-minute TTL ensures tokens are refreshed well within typical token lifetimes.
+
+2. **Graceful degradation**: If refresh fails but the token hasn't actually expired yet, the gateway continues using the existing token and logs a warning.
+
+3. **Per-user isolation**: Each user's token refresh is independent. A refresh failure for one user does not affect others.
+
+4. **HTTP client retry**: The `KiroHttpClient` can independently refresh tokens on 403 responses and retry the request.
 
 ### The Refresh Request
 
-The actual OIDC refresh (`src/auth/refresh.rs:refresh_aws_sso_oidc()`) sends a JSON POST to `https://oidc.{sso_region}.amazonaws.com/token`:
+The OIDC refresh (`backend/src/auth/refresh.rs:refresh_aws_sso_oidc()`) sends a JSON POST to `https://oidc.{sso_region}.amazonaws.com/token`:
 
 ```json
 {
@@ -251,23 +228,21 @@ The actual OIDC refresh (`src/auth/refresh.rs:refresh_aws_sso_oidc()`) sends a J
 }
 ```
 
-The SSO region may differ from the API region (e.g., SSO in `us-east-1` but API in `eu-west-1`). The response provides a new `access_token` and optionally a rotated `refresh_token`. Token expiration is calculated as `expires_in - 60 seconds` (a 60-second safety buffer).
+The SSO region may differ from the API region (e.g., SSO in `us-east-1` but API in `eu-west-1`). The response provides a new `access_token` and optionally a rotated `refresh_token`.
 
 ---
 
-## Credential Storage in PostgreSQL
+## Setup-Only Mode
 
-Credentials are stored in the gateway's PostgreSQL config database (`web_ui::config_db::ConfigDb`). The credential loader (`src/auth/credentials.rs:load_from_config_db()`) reads:
+On first run (no admin user in DB), the gateway enters setup-only mode:
 
-| Config Key | Description | Required |
-|-----------|-------------|----------|
-| `kiro_refresh_token` | OAuth refresh token | Yes |
-| `kiro_region` | AWS region for API calls | No (default: `us-east-1`) |
-| `oauth_client_id` | OAuth client ID from registration | Yes |
-| `oauth_client_secret` | OAuth client secret from registration | Yes |
-| `oauth_sso_region` | AWS region for SSO OIDC endpoint | No (defaults to `kiro_region`) |
+1. `setup_complete` `AtomicBool` is set to `false`
+2. All `/v1/*` proxy endpoints return `503 Service Unavailable`
+3. Only the web UI and health endpoints are accessible
+4. The first user to complete Google SSO is assigned the Admin role
+5. `setup_complete` transitions to `true` and the gateway begins serving proxy requests
 
-If `oauth_client_id` or `oauth_client_secret` is missing, the credential loader returns an error directing the user to complete the device code login via the Web UI.
+This ensures the gateway cannot be used as an open proxy before authentication is configured.
 
 ---
 
@@ -275,7 +250,7 @@ If `oauth_client_id` or `oauth_client_secret` is missing, the credential loader 
 
 ```mermaid
 flowchart LR
-    subgraph "src/auth/"
+    subgraph "backend/src/auth/"
         MOD["mod.rs<br/><i>Exports: AuthManager, PollResult</i>"]
         MGR["manager.rs<br/><i>AuthManager struct</i>"]
         CREDS["credentials.rs<br/><i>Load from ConfigDb</i>"]
@@ -296,16 +271,32 @@ flowchart LR
 
 ---
 
+## Web UI Auth Module Structure
+
+```mermaid
+flowchart LR
+    subgraph "backend/src/web_ui/"
+        GOOGLE["google_auth.rs<br/><i>Google SSO + PKCE</i>"]
+        SESSION["session.rs<br/><i>Cookie sessions + CSRF</i>"]
+        APIKEYS["api_keys.rs<br/><i>Per-user API key CRUD</i>"]
+        USERKIRO["user_kiro.rs<br/><i>Per-user Kiro token mgmt</i>"]
+        USERS["users.rs<br/><i>User admin (admin-only)</i>"]
+    end
+
+    GOOGLE --> SESSION
+    SESSION --> APIKEYS
+    SESSION --> USERKIRO
+    SESSION --> USERS
+```
+
+---
+
 ## How Auth Integrates with the Request Flow
 
 The authentication system touches the request flow at two points:
 
-1. **Middleware layer** — The `auth_middleware` validates the client's `PROXY_API_KEY` before the request reaches any handler. This is a simple string comparison, not an OAuth flow.
+1. **Middleware layer** — The `auth_middleware` SHA-256 hashes the client's API key and looks up the user in cache/DB. If valid, it injects the user's identity and Kiro credentials into the request extensions. This is a fast hash + DashMap lookup, not an OAuth flow.
 
-2. **Handler layer** — Inside `chat_completions_handler` and `anthropic_messages_handler`, the handler calls `auth_manager.get_access_token()` to obtain a valid Kiro API token. This may trigger a background refresh if the token is expiring soon.
+2. **Handler layer** — Inside `chat_completions_handler` and `anthropic_messages_handler`, the handler retrieves the per-user Kiro access token (from cache or via refresh). This may trigger a background refresh if the token is expiring soon.
 
 The `KiroHttpClient` also holds its own `Arc<AuthManager>` reference for connection-level retry logic. When a request to the Kiro API returns 403, the HTTP client can independently refresh the token and retry without involving the route handler.
-
-Two separate `AuthManager` instances exist at runtime:
-- One owned by `KiroHttpClient` (wrapped in `Arc<AuthManager>`) for retry-level token refresh
-- One in `AppState` (wrapped in `Arc<tokio::sync::RwLock<AuthManager>>`) that can be swapped entirely when the user re-authenticates through the Web UI

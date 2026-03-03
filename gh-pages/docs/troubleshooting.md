@@ -23,122 +23,161 @@ Common issues, error messages, and their solutions when running Kiro Gateway.
 
 Before diving into specific issues, run through this checklist:
 
-1. **Is the gateway running?** — `docker compose ps` or `systemctl status kiro-gateway`
-2. **Is it healthy?** — `curl -k https://localhost:9001/health`
-3. **Can you reach the Web UI?** — Open `https://your-server:9001/_ui/` in a browser
-4. **Is setup complete?** — Check the Web UI; if you see the setup wizard, complete it first
-5. **Check the logs** — `docker compose logs -f gateway` or `journalctl -u kiro-gateway -f`
+1. **Are all services running?** — `docker compose ps` (expect: db, backend, frontend, certbot)
+2. **Is the backend healthy?** — `docker compose logs backend` (look for startup messages)
+3. **Can you reach the Web UI?** — Open `https://your-domain/_ui/` in a browser
+4. **Is setup complete?** — If you see the setup wizard, complete it first (sign in with Google)
+5. **Check the logs** — `docker compose logs -f backend` for backend, `docker compose logs -f frontend` for nginx
 
 ---
 
 ## Startup Errors
 
-### "TLS is required when binding to non-localhost"
-
-**Cause:** The gateway enforces TLS when `SERVER_HOST` is set to anything other than `127.0.0.1` or `::1`. This is a security measure to prevent unencrypted traffic on public interfaces.
-
-**Solution:** Generate a TLS certificate:
-
-```bash
-mkdir -p certs
-openssl req -x509 -newkey rsa:4096 \
-  -keyout certs/key.pem -out certs/cert.pem \
-  -days 3650 -nodes \
-  -subj "/CN=$(hostname)"
-```
-
-If using Docker Compose, the `docker-compose.yml` already sets `TLS_ENABLED: "true"` and expects certs in `./certs/`.
-
-### "TLS certificate file not found"
-
-**Cause:** The `TLS_CERT` or `TLS_KEY` environment variable points to a file that doesn't exist.
-
-**Solution:**
-- Verify the cert files exist: `ls -la certs/`
-- If using Docker, ensure the certs directory is bind-mounted in `docker-compose.yml`
-- Generate certs if they're missing (see above)
-
-### "--tls-cert was provided without --tls-key"
-
-**Cause:** You provided a TLS certificate but not the corresponding private key (or vice versa). Both must be provided together.
-
-**Solution:** Provide both `TLS_CERT` and `TLS_KEY`:
-
-```bash
-export TLS_CERT=./certs/cert.pem
-export TLS_KEY=./certs/key.pem
-```
-
 ### "Failed to connect to PostgreSQL"
 
-**Cause:** The gateway cannot reach the PostgreSQL database at the configured `DATABASE_URL`.
+**Cause:** The backend cannot reach the PostgreSQL database at the configured `DATABASE_URL`.
 
 **Solutions:**
-- **Docker Compose:** Check that the `db` service is healthy: `docker compose ps`. The gateway depends on `db` with `condition: service_healthy`, so it should wait. If the db container is unhealthy, check its logs: `docker compose logs db`
-- **Manual deployment:** Verify PostgreSQL is running: `pg_isready -h localhost -p 5432`
-- **Connection string:** Double-check `DATABASE_URL` format: `postgres://user:password@host:port/database`
-- **Authentication:** Verify the PostgreSQL user and password are correct: `psql -U kiro -d kiro_gateway -h localhost`
+- **Check service health:** `docker compose ps` — the `db` service should show "healthy". The backend depends on `db` with `condition: service_healthy`.
+- **View db logs:** `docker compose logs db` — check for PostgreSQL startup errors
+- **Verify credentials:** Ensure `POSTGRES_PASSWORD` in `.env` matches what the db container expects
+- **Connection string:** `DATABASE_URL` is auto-set by docker-compose to `postgres://kiro:$POSTGRES_PASSWORD@db:5432/kiro_gateway`
 
-### "--dashboard requires a terminal (TTY)"
-
-**Cause:** The `--dashboard` flag was used but stdout is not a terminal (e.g. running in Docker or piped output).
-
-**Solution:** The TUI dashboard requires an interactive terminal. Either:
-- Remove the `--dashboard` flag and use the Web UI at `/_ui/` instead
-- Run the gateway in an interactive terminal session
-
-### Container exits immediately
+### Backend container exits immediately
 
 **Cause:** Usually a configuration error or failed database connection.
 
-**Solution:** Check the gateway logs for the specific error:
+**Solution:** Check the backend logs for the specific error:
 
 ```bash
-docker compose logs gateway
+docker compose logs backend
 ```
 
 Common causes:
 - Invalid environment variables in `.env`
 - PostgreSQL not ready (check `docker compose ps` — `db` should be healthy)
-- Port already in use (change `SERVER_PORT` in `.env`)
+- Missing required environment variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`)
+
+### Frontend (nginx) container won't start
+
+**Cause:** Nginx configuration error or missing TLS certificates.
+
+**Solutions:**
+- **Check logs:** `docker compose logs frontend`
+- **Missing certificates:** On first run, you must provision certificates first with `./init-certs.sh`
+- **Configuration error:** The nginx template uses `envsubst` — verify `DOMAIN` is set in `.env`
+- **Port conflict:** Ensure ports 80 and 443 are not in use by another service
+
+---
+
+## TLS / Certificate Issues
+
+### Certbot fails to obtain certificates
+
+**Cause:** Let's Encrypt cannot verify domain ownership via HTTP-01 challenge.
+
+**Solutions:**
+- **DNS must point to your server:** Ensure `DOMAIN` in `.env` resolves to your server's public IP
+- **Port 80 must be accessible:** Let's Encrypt validates via `http://your-domain/.well-known/acme-challenge/`. Ensure port 80 is open in your firewall and not blocked by another service.
+- **Rate limits:** Let's Encrypt has rate limits (5 duplicate certs per week). Check [Let's Encrypt rate limits](https://letsencrypt.org/docs/rate-limits/).
+- **Email required:** Ensure `EMAIL` is set in `.env` for Let's Encrypt notifications
+
+### First-time certificate provisioning
+
+On a fresh deployment, run the init script before starting the full stack:
+
+```bash
+chmod +x init-certs.sh
+./init-certs.sh
+```
+
+This obtains the initial Let's Encrypt certificates. After this, certbot auto-renews every 12 hours via the certbot container.
+
+### Certificate not renewing
+
+**Cause:** The certbot container may not be running or the webroot is inaccessible.
+
+**Solutions:**
+- **Check certbot status:** `docker compose ps certbot`
+- **Check certbot logs:** `docker compose logs certbot`
+- **Manual renewal test:** `docker compose run --rm certbot renew --dry-run`
+- **Webroot access:** Ensure the nginx configuration serves `/.well-known/acme-challenge/` from the certbot webroot volume
+
+### "SSL: error" or "certificate verify failed" in client
+
+**Cause:** Certificate issues between client and nginx.
+
+**Solutions:**
+- Verify certificates exist: `docker compose exec frontend ls -la /etc/letsencrypt/live/$DOMAIN/`
+- Check certificate expiry: `docker compose exec frontend openssl x509 -enddate -noout -in /etc/letsencrypt/live/$DOMAIN/fullchain.pem`
+- Restart nginx after cert renewal: `docker compose restart frontend`
+
+---
+
+## Google SSO Issues
+
+### "OAuth callback URL mismatch"
+
+**Cause:** The `GOOGLE_CALLBACK_URL` in `.env` doesn't match the authorized redirect URI in your Google Cloud Console.
+
+**Solutions:**
+- **Check `.env`:** `GOOGLE_CALLBACK_URL` should be `https://your-domain/_ui/api/auth/google/callback`
+- **Check Google Cloud Console:** Go to APIs & Services > Credentials > Your OAuth Client. The "Authorized redirect URIs" must include the exact same URL.
+- **Protocol matters:** The URL must use `https://`, not `http://`
+- **No trailing slash:** Ensure there's no trailing slash mismatch
+
+### "Sign in with Google" fails silently
+
+**Cause:** Missing or incorrect Google OAuth configuration.
+
+**Solutions:**
+- Verify all three Google OAuth variables are set in `.env`:
+  - `GOOGLE_CLIENT_ID`
+  - `GOOGLE_CLIENT_SECRET`
+  - `GOOGLE_CALLBACK_URL`
+- Check that the OAuth consent screen is configured in Google Cloud Console
+- For development, ensure "Test users" are added if the app is in testing mode
+- Check backend logs for OAuth errors: `docker compose logs backend | grep -i oauth`
+
+### "Access denied" after Google login
+
+**Cause:** The user's Google account domain may not be in the allowed domain list.
+
+**Solutions:**
+- If domain allowlisting is enabled, the admin must add the user's email domain via the web UI
+- The first user (admin) bypasses domain restrictions during initial setup
+- Check the domain allowlist in the admin panel at `/_ui/`
 
 ---
 
 ## Authentication Errors
 
-### "Invalid or missing API Key" (401)
+### "Invalid or missing API Key" (401) on /v1/* endpoints
 
-**Cause:** The request doesn't include a valid API key, or the key doesn't match the configured `PROXY_API_KEY`.
+**Cause:** The request doesn't include a valid per-user API key.
 
 **Solutions:**
-- Verify you're sending the key in the correct header:
-  - OpenAI-style: `Authorization: Bearer YOUR_KEY`
-  - Anthropic-style: `x-api-key: YOUR_KEY`
+- Create an API key in the web dashboard at `/_ui/` (API Keys section)
+- Verify the key is sent in the correct header:
+  - OpenAI-style: `Authorization: Bearer YOUR_API_KEY`
+  - Anthropic-style: `x-api-key: YOUR_API_KEY`
 - The `Authorization` header must include the `Bearer ` prefix (with a space)
-- Check the configured key in the Web UI at `/_ui/` (it's shown masked)
-- If you forgot the key, you can update it via PostgreSQL directly:
-
-```bash
-docker compose exec db psql -U kiro kiro_gateway -c \
-  "UPDATE config SET value = 'new-key-here' WHERE key = 'proxy_api_key';"
-docker compose restart gateway
-```
+- API keys are per-user — each user must create their own
 
 ### "Failed to get access token"
 
-**Cause:** The gateway couldn't obtain a valid Kiro API access token. This usually means the refresh token has expired or is invalid.
+**Cause:** The gateway couldn't obtain a valid Kiro API access token for the user. The user's Kiro refresh token may have expired or not been configured.
 
 **Solutions:**
-- Open the Web UI at `/_ui/` and check the configuration page
-- Re-run the OAuth device code flow from the setup page
-- If using a manual refresh token, update it via the Web UI config page
-- Check that `KIRO_REGION` is set correctly (default: `us-east-1`)
+- Sign in to the web UI and check the Kiro token management section
+- Re-configure Kiro credentials for the affected user
+- Each user manages their own Kiro tokens — verify the specific user's configuration
 
 ### "Setup required. Please complete setup at /_ui/" (503)
 
-**Cause:** The gateway is in setup-only mode because initial configuration hasn't been completed. All `/v1/*` endpoints return 503 until setup is done.
+**Cause:** The gateway is in setup-only mode because no admin user exists in the database. All `/v1/*` endpoints return 503 until setup is done.
 
-**Solution:** Open `https://your-server:9001/_ui/` and complete the setup wizard.
+**Solution:** Open `https://your-domain/_ui/` and complete setup by signing in with Google. The first user gets the admin role.
 
 ---
 
@@ -148,44 +187,46 @@ docker compose restart gateway
 
 **Possible causes and solutions:**
 
-1. **Firewall:** Ensure the gateway port (default 9001) is open:
-   ```bash
-   # Check if port is listening
-   ss -tlnp | grep 9001
-
-   # Open firewall (Ubuntu/Debian)
-   sudo ufw allow 9001/tcp
-   ```
-
-2. **Bind address:** If `SERVER_HOST=127.0.0.1`, the gateway only accepts local connections. Set to `0.0.0.0` for remote access.
-
-3. **TLS rejection:** If using a self-signed certificate, clients will reject the connection by default. Use `-k` with curl or disable verification in your client library.
-
-4. **Docker networking:** If running in Docker, ensure the port is published:
+1. **Services not running:** Check all four services are up:
    ```bash
    docker compose ps
-   # Should show: 0.0.0.0:9001->9001/tcp
    ```
 
-### "Connection refused" when calling the API
+2. **Firewall:** Ensure ports 80 and 443 are open:
+   ```bash
+   # Check if ports are listening
+   ss -tlnp | grep -E ':(80|443)\s'
 
-**Cause:** The gateway is not running or not listening on the expected port.
+   # Open firewall (Ubuntu/Debian)
+   sudo ufw allow 80/tcp
+   sudo ufw allow 443/tcp
+   ```
+
+3. **DNS:** Ensure your domain resolves to the server's IP:
+   ```bash
+   dig your-domain +short
+   ```
+
+4. **Nginx not proxying:** Check nginx logs and configuration:
+   ```bash
+   docker compose logs frontend
+   ```
+
+### "502 Bad Gateway" from nginx
+
+**Cause:** Nginx cannot reach the backend service.
 
 **Solutions:**
-- Check if the process is running: `docker compose ps` or `ps aux | grep kiro-gateway`
-- Verify the port: `curl -k https://localhost:9001/health`
-- Check for port conflicts: `ss -tlnp | grep 9001`
+- Check that the backend container is running: `docker compose ps backend`
+- Check backend logs for errors: `docker compose logs backend`
+- Verify the backend is listening on port 8000: `docker compose exec backend curl -s http://localhost:8000/health`
+- Ensure both services are on the same Docker network
 
 ### Streaming responses hang or disconnect
 
 **Possible causes:**
 
-1. **Reverse proxy buffering:** If using nginx, disable buffering for SSE:
-   ```nginx
-   proxy_buffering off;
-   proxy_cache off;
-   proxy_read_timeout 300s;
-   ```
+1. **Proxy timeout:** The nginx configuration should have appropriate timeouts for SSE streaming. Check that `proxy_read_timeout` is set high enough (300s recommended for long completions).
 
 2. **First token timeout:** The gateway has a configurable timeout for the first token (default: 15 seconds). If the model takes longer to start responding, increase `first_token_timeout` in the Web UI.
 
@@ -214,15 +255,7 @@ docker compose restart gateway
 
 **Cause:** The `max_tokens` field in an Anthropic-format request is zero or negative.
 
-**Solution:** Set `max_tokens` to a positive integer:
-
-```json
-{
-  "model": "claude-sonnet-4-20250514",
-  "max_tokens": 1024,
-  "messages": [...]
-}
-```
+**Solution:** Set `max_tokens` to a positive integer.
 
 ### "Kiro API error: 429 - Rate limit exceeded"
 
@@ -231,23 +264,22 @@ docker compose restart gateway
 **Solutions:**
 - Reduce request frequency
 - The gateway automatically retries with backoff (configurable via `http_max_retries`, default: 3)
-- Check if you have multiple clients sharing the same Kiro account
+- Check if multiple users are sharing the same Kiro credentials
 
 ### "Kiro API error: 403 - Forbidden"
 
 **Cause:** The Kiro API rejected the request, usually due to an expired or invalid access token.
 
 **Solutions:**
-- The gateway auto-refreshes tokens, but if the refresh token itself has expired, you need to re-authenticate
-- Open the Web UI and re-run the OAuth setup flow
-- Check that `KIRO_REGION` matches your AWS account's region
+- The gateway auto-refreshes tokens, but if the refresh token itself has expired, the user needs to re-configure their Kiro credentials via the web UI
+- Each user manages their own Kiro tokens — check the specific user's token status
 
 ### Model not found or unexpected model behavior
 
-**Cause:** The model name you're using doesn't match any known model in the Kiro API.
+**Cause:** The model name doesn't match any known model in the Kiro API.
 
 **Solutions:**
-- List available models: `curl -k -H "Authorization: Bearer KEY" https://localhost:9001/v1/models`
+- List available models: `curl -H "Authorization: Bearer YOUR_KEY" https://your-domain/v1/models`
 - Use the exact model ID from the list
 - The resolver supports common aliases (e.g. `claude-sonnet-4.5`), but if your alias isn't recognized, use the canonical ID
 
@@ -255,9 +287,10 @@ docker compose restart gateway
 
 ## Docker-Specific Issues
 
-### Build fails with "cargo build" errors
+### Build fails during `docker compose build`
 
 **Possible causes:**
+
 - **Out of memory:** Rust compilation is memory-intensive. Ensure at least 2 GB RAM is available. On low-memory VPS, add swap:
   ```bash
   sudo fallocate -l 2G /swapfile
@@ -265,23 +298,13 @@ docker compose restart gateway
   sudo mkswap /swapfile
   sudo swapon /swapfile
   ```
-- **Network issues:** Cargo needs to download dependencies. Check internet connectivity from the Docker build context.
-
-### "healthy" status never reached
-
-**Cause:** The Docker health check uses `curl -fsk` to hit the health endpoint. If this fails, the container stays "unhealthy".
-
-**Solutions:**
-- Check if the gateway is actually running: `docker compose logs gateway`
-- Verify the port matches: the health check uses `${SERVER_PORT:-9001}`
-- If using a custom port, ensure it's set in `.env`
-- The `start_period: 20s` gives the gateway time to start; if your system is slow, increase it
+- **Network issues:** Both Cargo (Rust dependencies) and npm (frontend dependencies) need internet access during the build.
 
 ### PostgreSQL data persistence
 
-**Cause:** PostgreSQL data is stored in a Docker named volume (`pgdata`). If you remove volumes, you lose all configuration.
+PostgreSQL data is stored in a Docker named volume (`pgdata`). If you remove volumes, you lose all configuration, users, and API keys.
 
-**Solutions:**
+**Best practices:**
 - **Never** use `docker compose down -v` unless you want to reset everything
 - Back up regularly:
   ```bash
@@ -294,68 +317,13 @@ docker compose restart gateway
 
 ### Port conflicts
 
-**Cause:** Another service is already using the configured port.
+**Cause:** Another service is already using port 80 or 443.
 
-**Solution:** Change the port in `.env`:
-
-```bash
-SERVER_PORT=9002
-```
-
-Then restart: `docker compose up -d`
-
----
-
-## TLS Certificate Issues
-
-### "certificate verify failed" in client
-
-**Cause:** The client is rejecting the gateway's self-signed certificate.
-
-**Solutions by client:**
-
-| Client | Solution |
-|--------|----------|
-| curl | Add `-k` or `--insecure` flag |
-| Python (httpx) | `httpx.Client(verify=False)` |
-| Python (requests) | `requests.get(url, verify=False)` |
-| Node.js | Set `NODE_TLS_REJECT_UNAUTHORIZED=0` env var |
-| OpenAI Python | Pass `http_client=httpx.Client(verify=False)` |
-| Anthropic Python | Pass `http_client=httpx.Client(verify=False)` |
-
-For production, use a real certificate from Let's Encrypt (see [Deployment Guide](deployment.html#lets-encrypt-production)).
-
-### Certificate expired
-
-**Cause:** The TLS certificate has passed its expiration date.
-
-**Solution:** Generate a new certificate or renew via Let's Encrypt:
+**Solution:** Stop the conflicting service or adjust your configuration. The gateway requires ports 80 (for HTTP redirect and certbot) and 443 (for HTTPS).
 
 ```bash
-# Self-signed: regenerate
-openssl req -x509 -newkey rsa:4096 \
-  -keyout certs/key.pem -out certs/cert.pem \
-  -days 3650 -nodes \
-  -subj "/CN=$(hostname)"
-
-# Let's Encrypt: renew
-sudo certbot renew
-
-# Restart to pick up new cert
-docker compose restart gateway
-```
-
-### Certificate hostname mismatch
-
-**Cause:** The certificate's Common Name (CN) or Subject Alternative Name (SAN) doesn't match the hostname you're connecting to.
-
-**Solution:** Regenerate the certificate with the correct hostname:
-
-```bash
-openssl req -x509 -newkey rsa:4096 \
-  -keyout certs/key.pem -out certs/cert.pem \
-  -days 3650 -nodes \
-  -subj "/CN=your-actual-hostname.com"
+# Find what's using the ports
+ss -tlnp | grep -E ':(80|443)\s'
 ```
 
 ---
@@ -364,64 +332,47 @@ openssl req -x509 -newkey rsa:4096 \
 
 ### Enable Debug Logging
 
-For detailed request/response logging:
+For detailed request/response logging, change settings in the Web UI (admin only):
 
-```bash
-# Via environment variable
-export LOG_LEVEL=debug
-export DEBUG_MODE=all
-
-# Or via Web UI: change log_level to "debug" and debug_mode to "all"
-```
+- Set `log_level` to `debug`
+- Set `debug_mode` to `all` (logs all request/response bodies — use temporarily)
 
 Debug mode options:
 - `off` — no debug output (default)
 - `errors` — log request/response bodies only for failed requests
-- `all` — log all request/response bodies (verbose, use temporarily)
+- `all` — log all request/response bodies (verbose)
+
+### Viewing Logs
+
+```bash
+# All services
+docker compose logs -f
+
+# Backend only
+docker compose logs -f backend
+
+# Nginx (frontend) only
+docker compose logs -f frontend
+
+# Filter by level
+docker compose logs backend 2>&1 | grep -i error
+
+# Last 100 lines with timestamps
+docker compose logs -f --timestamps --tail=100 backend
+
+# Web UI: use the log viewer at /_ui/ (requires login)
+```
 
 ### Key Log Messages to Watch For
 
 | Log Message | Meaning |
 |-------------|---------|
 | `Request to /v1/chat/completions: model=X, stream=Y, messages=Z` | Incoming request received |
-| `Model resolution: X -> Y (source: Z, verified: true)` | Model name was resolved successfully |
+| `Model resolution: X -> Y (source: Z, verified: true)` | Model name resolved successfully |
 | `Handling streaming response` | Streaming mode activated |
-| `Handling non-streaming response (collecting stream)` | Non-streaming mode (Kiro always streams internally) |
 | `Access attempt with invalid or missing API key` | Authentication failure |
 | `Failed to get access token` | Kiro token refresh failed |
-| `Internal error: ...` | Unexpected server error (check full stack trace) |
-
-### Filtering Logs
-
-```bash
-# Docker: filter by level
-docker compose logs gateway 2>&1 | grep -i error
-
-# Docker: follow with timestamp
-docker compose logs -f --timestamps gateway
-
-# systemd: filter by priority
-journalctl -u kiro-gateway -p err -f
-
-# Web UI: use the log search feature at /_ui/
-# Supports text search with pagination
-```
-
-### Metrics for Debugging
-
-The Web UI metrics endpoint provides useful debugging data:
-
-```bash
-curl -k -H "Authorization: Bearer KEY" \
-  https://localhost:9001/_ui/api/metrics
-```
-
-Response includes:
-- `active_connections` — currently in-flight requests
-- `total_requests` / `total_errors` — lifetime counters
-- `latency.p50/p95/p99` — latency percentiles
-- `errors_by_type` — breakdown of error categories (`auth`, `validation`, `upstream`, `internal`)
-- `models` — per-model request counts and token usage
+| `Internal error: ...` | Unexpected server error (check full trace) |
 
 ---
 
@@ -432,17 +383,21 @@ If you can't resolve an issue:
 1. Check the [GitHub Issues](https://github.com/if414013/rkgw/issues) for known problems
 2. Collect diagnostic information:
    ```bash
-   # Gateway version
-   curl -k https://localhost:9001/health | jq .version
-
-   # Container status
+   # Service status
    docker compose ps
 
-   # Recent logs (last 100 lines)
-   docker compose logs --tail=100 gateway
+   # Recent backend logs
+   docker compose logs --tail=100 backend
+
+   # Recent nginx logs
+   docker compose logs --tail=100 frontend
+
+   # Certificate status
+   docker compose exec frontend ls -la /etc/letsencrypt/live/
 
    # System info
    uname -a
    docker --version
+   docker compose version
    ```
 3. Open a new issue with the diagnostic information and steps to reproduce

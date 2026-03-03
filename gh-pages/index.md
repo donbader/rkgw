@@ -7,8 +7,8 @@ nav_order: 1
 <div class="hero" markdown="0">
   <h1>Kiro Gateway</h1>
   <p class="tagline">
-    A high-performance Rust proxy that lets you use OpenAI and Anthropic client libraries
-    with the Kiro API (AWS CodeWhisperer) backend. Built with Axum and Tokio.
+    A multi-user Rust proxy that lets you use OpenAI and Anthropic client libraries
+    with the Kiro API (AWS CodeWhisperer) backend. Deployed via Docker Compose with automated TLS.
   </p>
   <div class="badges">
     <span class="badge">Rust</span>
@@ -16,12 +16,13 @@ nav_order: 1
     <span class="badge">OpenAI Compatible</span>
     <span class="badge">Anthropic Compatible</span>
     <span class="badge">Streaming</span>
+    <span class="badge">Multi-User</span>
   </div>
 </div>
 
 ## How It Works
 
-Kiro Gateway sits between your existing AI client code and the Kiro API. Send requests in OpenAI or Anthropic format -- the gateway translates them on the fly, handles authentication, and streams responses back in the format your client expects.
+Kiro Gateway sits between your existing AI client code and the Kiro API. Send requests in OpenAI or Anthropic format -- the gateway translates them on the fly, handles per-user authentication, and streams responses back in the format your client expects.
 
 ```mermaid
 flowchart LR
@@ -30,10 +31,13 @@ flowchart LR
         ANT["Anthropic Client"]
     end
 
-    subgraph GW["Kiro Gateway"]
-        MW["Middleware\n(CORS, Auth)"]
-        CONV["Format\nConverters"]
-        STREAM["Stream\nParser"]
+    subgraph Docker["Docker Compose"]
+        NGINX["nginx\n(TLS)"]
+        subgraph GW["Backend"]
+            MW["Middleware\n(CORS, Auth)"]
+            CONV["Format\nConverters"]
+            STREAM["Stream\nParser"]
+        end
     end
 
     subgraph Backend
@@ -41,13 +45,13 @@ flowchart LR
         SSO["AWS SSO\nOIDC"]
     end
 
-    OAI --> MW
-    ANT --> MW
+    OAI --> NGINX
+    ANT --> NGINX
+    NGINX --> MW
     MW --> CONV
     CONV --> KIRO
     KIRO --> STREAM
-    STREAM --> OAI
-    STREAM --> ANT
+    STREAM --> NGINX
     GW -.-> SSO
 ```
 
@@ -67,8 +71,8 @@ flowchart LR
     <p>Parses Kiro's AWS Event Stream binary format and converts to standard SSE in real time.</p>
   </div>
   <div class="feature-card">
-    <h3>Auto Authentication</h3>
-    <p>Manages OAuth tokens via AWS SSO OIDC with automatic refresh before expiry. Zero manual token handling.</p>
+    <h3>Multi-User Auth</h3>
+    <p>Google SSO for web UI access, per-user API keys for programmatic access. Role-based access control (Admin/User).</p>
   </div>
   <div class="feature-card">
     <h3>Extended Thinking</h3>
@@ -76,27 +80,27 @@ flowchart LR
   </div>
   <div class="feature-card">
     <h3>Web Dashboard</h3>
-    <p>Built-in web UI for configuration, monitoring, and real-time log streaming. Optional TUI dashboard too.</p>
+    <p>Built-in web UI for configuration, user management, API key management, and real-time log streaming.</p>
   </div>
 </div>
 
 ## Quick Start
 
 ```bash
-# Clone and build
+# Clone and configure
 git clone https://github.com/if414013/rkgw.git
 cd rkgw
-cargo build --release
+cp .env.example .env
+# Edit .env with your domain, Google OAuth credentials, etc.
 
-# Configure
-export PROXY_API_KEY="your-secret-key"
-export DATABASE_URL="postgres://user:pass@localhost:5432/kiro_gateway"
+# Provision TLS certificates
+./init-certs.sh
 
-# Run
-cargo run --bin kiro-gateway --release
+# Start all services
+docker compose up -d --build
 ```
 
-Then point your OpenAI or Anthropic client at `http://localhost:8000`.
+Then open `https://your-domain.com/_ui/` to complete setup via Google SSO.
 
 ## Documentation
 

@@ -9,7 +9,7 @@ permalink: /architecture/
 # Architecture Overview
 {: .no_toc }
 
-Kiro Gateway is a Rust proxy that exposes OpenAI and Anthropic-compatible APIs, translating requests to the Kiro API (AWS CodeWhisperer) backend. This section provides a comprehensive look at the system's internal architecture, from the high-level component layout down to individual module responsibilities.
+Kiro Gateway is a Rust proxy that exposes OpenAI and Anthropic-compatible APIs, translating requests to the Kiro API (AWS CodeWhisperer) backend. It runs exclusively via docker-compose with four services: a PostgreSQL database, a Rust backend (plain HTTP), an nginx frontend (TLS termination + static SPA), and certbot for automated Let's Encrypt certificate management.
 
 ## Table of Contents
 {: .no_toc .text-delta }
@@ -28,58 +28,74 @@ flowchart TB
     subgraph Clients["Client Applications"]
         OAI["OpenAI-compatible Client<br/>(e.g. Cursor, Continue, OpenCode)"]
         ANT["Anthropic-compatible Client<br/>(e.g. Claude Code, Aider)"]
+        BROWSER["Web Browser<br/>(Admin Dashboard)"]
     end
 
-    subgraph Gateway["Kiro Gateway (Axum + Tokio)"]
-        subgraph MW["Middleware Stack"]
-            CORS["CORS Layer<br/><i>tower-http</i>"]
-            HSTS["HSTS Middleware"]
-            DEBUG["Debug Logger"]
-            AUTH["Auth Middleware<br/><i>PROXY_API_KEY check</i>"]
+    subgraph Docker["Docker Compose"]
+        subgraph Nginx["nginx (frontend, :443/:80)"]
+            SPA["React SPA<br/><i>/_ui/* static files</i>"]
+            PROXY_UI["Reverse Proxy<br/><i>/_ui/api/* → backend</i>"]
+            PROXY_API["Reverse Proxy<br/><i>/v1/* → backend (SSE)</i>"]
+            ACME["ACME Webroot<br/><i>/.well-known/</i>"]
         end
 
-        subgraph Routes["Route Handlers"]
-            HEALTH["GET /<br/>GET /health"]
-            OPENAI["POST /v1/chat/completions<br/>GET /v1/models"]
-            ANTHRO["POST /v1/messages"]
-            WEBUI["/_ui/*<br/><i>Web Dashboard</i>"]
+        subgraph Gateway["Backend (Axum + Tokio, plain HTTP)"]
+            subgraph MW["Middleware Stack"]
+                CORS["CORS Layer<br/><i>tower-http</i>"]
+                DEBUG["Debug Logger"]
+                AUTH["Auth Middleware<br/><i>Per-user API key (SHA-256)</i>"]
+            end
+
+            subgraph Routes["Route Handlers"]
+                HEALTH["GET /<br/>GET /health"]
+                OPENAI["POST /v1/chat/completions<br/>GET /v1/models"]
+                ANTHRO["POST /v1/messages"]
+                WEBUI["/_ui/api/*<br/><i>Web UI API</i>"]
+            end
+
+            subgraph Core["Core Services"]
+                CONFIG["Config<br/><i>ENV + PostgreSQL overlay</i>"]
+                CACHE["ModelCache<br/><i>DashMap + TTL</i>"]
+                RESOLVER["ModelResolver<br/><i>Name normalization</i>"]
+                AUTHMGR["AuthManager<br/><i>Per-user Kiro tokens</i>"]
+                HTTPC["KiroHttpClient<br/><i>Pooled + retry</i>"]
+                METRICS["MetricsCollector"]
+                LOGCAP["LogCapture<br/><i>Tracing layer → SSE</i>"]
+            end
+
+            subgraph Convert["Format Converters"]
+                O2K["openai_to_kiro"]
+                A2K["anthropic_to_kiro"]
+                K2O["kiro_to_openai"]
+                K2A["kiro_to_anthropic"]
+                CORE_C["core.rs<br/><i>Unified types</i>"]
+            end
+
+            subgraph Stream["Streaming Pipeline"]
+                PARSER["AWS Event Stream<br/>Binary Parser"]
+                THINK["ThinkingParser<br/><i>FSM for &lt;thinking&gt; tags</i>"]
+                SSE["SSE Formatter"]
+                TRUNC["Truncation Recovery"]
+            end
         end
 
-        subgraph Core["Core Services"]
-            CONFIG["Config<br/><i>CLI + ENV + DB</i>"]
-            CACHE["ModelCache<br/><i>DashMap + TTL</i>"]
-            RESOLVER["ModelResolver<br/><i>Name normalization</i>"]
-            AUTHMGR["AuthManager<br/><i>Token lifecycle</i>"]
-            HTTPC["KiroHttpClient<br/><i>Pooled + retry</i>"]
-            METRICS["MetricsCollector"]
-        end
-
-        subgraph Convert["Format Converters"]
-            O2K["openai_to_kiro"]
-            A2K["anthropic_to_kiro"]
-            K2O["kiro_to_openai"]
-            K2A["kiro_to_anthropic"]
-            CORE_C["core.rs<br/><i>Unified types</i>"]
-        end
-
-        subgraph Stream["Streaming Pipeline"]
-            PARSER["AWS Event Stream<br/>Binary Parser"]
-            THINK["ThinkingParser<br/><i>FSM for &lt;thinking&gt; tags</i>"]
-            SSE["SSE Formatter"]
-            TRUNC["Truncation Recovery"]
-        end
+        CERTBOT["certbot<br/><i>Let's Encrypt renewal (12h)</i>"]
+        PG[("PostgreSQL 16<br/><i>Config + Users + API Keys</i>")]
     end
 
     subgraph External["External Services"]
         KIRO["Kiro API<br/><i>codewhisperer.{region}.amazonaws.com</i>"]
         QAPI["Q API<br/><i>q.{region}.amazonaws.com</i>"]
         SSOOIDC["AWS SSO OIDC<br/><i>oidc.{region}.amazonaws.com</i>"]
-        PG[("PostgreSQL<br/><i>Config + Credentials</i>")]
+        GOOGLE["Google OAuth<br/><i>accounts.google.com</i>"]
     end
 
-    OAI --> CORS
-    ANT --> CORS
-    CORS --> HSTS --> DEBUG --> AUTH
+    OAI --> Nginx
+    ANT --> Nginx
+    BROWSER --> Nginx
+    PROXY_API --> CORS
+    PROXY_UI --> CORS
+    CORS --> DEBUG --> AUTH
     AUTH --> OPENAI
     AUTH --> ANTHRO
     HEALTH -.-> |no auth| CORS
@@ -97,8 +113,6 @@ flowchart TB
     THINK --> K2A
     K2O --> SSE
     K2A --> SSE
-    SSE --> OAI
-    SSE --> ANT
 
     AUTHMGR --> PG
     AUTHMGR --> SSOOIDC
@@ -106,6 +120,32 @@ flowchart TB
     RESOLVER --> CACHE
     CACHE -.-> QAPI
     CONFIG --> PG
+    WEBUI --> GOOGLE
+    CERTBOT --> ACME
+```
+
+---
+
+## Docker Services
+
+The gateway runs as four docker-compose services:
+
+| Service | Image | Purpose |
+|---------|-------|---------|
+| `db` | PostgreSQL 16 | Persistent storage for config, users, API keys, Kiro credentials |
+| `backend` | Custom (Rust) | Axum API server on port 8000 (plain HTTP, internal only) |
+| `frontend` | Custom (nginx) | TLS termination, static SPA, reverse proxy to backend |
+| `certbot` | certbot/certbot | Let's Encrypt certificate provisioning and auto-renewal (12h cycle) |
+
+```
+Internet → nginx (frontend, :443/:80)
+              ├── /_ui/*           → React SPA static files
+              ├── /_ui/api/*       → proxy → backend:8000
+              ├── /v1/*            → proxy → backend:8000 (SSE streaming)
+              └── /.well-known/    → certbot webroot
+           certbot   → Let's Encrypt cert auto-renewal (12h cycle)
+           backend   → Rust API server (plain HTTP, internal only)
+           db        → PostgreSQL 16
 ```
 
 ---
@@ -126,6 +166,10 @@ classDiagram
         +Arc~MetricsCollector~ metrics
         +Arc~Mutex~VecDeque~LogEntry~~~ log_buffer
         +Option~Arc~ConfigDb~~ config_db
+        +Arc~DashMap~ session_cache
+        +Arc~DashMap~ api_key_cache
+        +Arc~DashMap~ kiro_token_cache
+        +Arc~DashMap~ oauth_pending
     }
 
     class ModelCache {
@@ -164,7 +208,6 @@ classDiagram
     class Config {
         +String server_host
         +u16 server_port
-        +String proxy_api_key
         +String kiro_region
         +DebugMode debug_mode
         +bool fake_reasoning_enabled
@@ -186,6 +229,10 @@ Key design decisions for AppState:
 - `config` uses `std::sync::RwLock` since config reads are synchronous and fast.
 - `model_cache` uses `DashMap` internally for lock-free concurrent reads.
 - `setup_complete` is an `AtomicBool` that gates API routes — when `false`, only the Web UI and health endpoints are accessible.
+- `session_cache` maps session UUIDs to `SessionInfo` for Google SSO web UI sessions.
+- `api_key_cache` maps SHA-256 hashed API keys to `(user_id, key_id)` tuples for fast per-user auth lookup.
+- `kiro_token_cache` stores per-user Kiro access tokens with a 4-minute TTL.
+- `oauth_pending` stores PKCE state during OAuth flows with a 10-minute TTL and 10k capacity cap.
 
 ---
 
@@ -204,8 +251,7 @@ flowchart TD
     MAIN --> MW["middleware/"]
     MAIN --> WEBUI["web_ui/"]
     MAIN --> METRICS["metrics"]
-    MAIN --> DASH["dashboard/"]
-    MAIN --> TLS["tls"]
+    MAIN --> LOGCAP["log_capture"]
 
     ROUTES --> CONVERTERS["converters/"]
     ROUTES --> STREAMING["streaming/"]
@@ -246,15 +292,13 @@ flowchart TD
 | Async Runtime | [Tokio](https://tokio.rs/) | Multi-threaded async runtime |
 | Middleware | [tower](https://github.com/tower-rs/tower) / tower-http | Composable middleware layers (CORS, logging) |
 | HTTP Client | [reqwest](https://github.com/seanmonstar/reqwest) | Connection-pooled HTTP client with TLS |
-| TLS | [rustls](https://github.com/rustls/rustls) + ring | Always-on TLS (self-signed or custom cert) |
 | Serialization | [serde](https://serde.rs/) + serde_json | JSON serialization/deserialization |
-| CLI Parsing | [clap](https://github.com/clap-rs/clap) | CLI argument parsing with env var support |
-| Database | [sqlx](https://github.com/launchbadge/sqlx) (PostgreSQL) | Async PostgreSQL for config persistence |
-| Caching | [DashMap](https://github.com/xacrimon/dashmap) | Lock-free concurrent hash map |
-| Logging | [tracing](https://github.com/tokio-rs/tracing) | Structured, async-aware logging |
+| Database | [sqlx](https://github.com/launchbadge/sqlx) (PostgreSQL) | Async PostgreSQL for users, API keys, config persistence |
+| Caching | [DashMap](https://github.com/xacrimon/dashmap) | Lock-free concurrent hash map (models, sessions, API keys, tokens) |
+| Logging | [tracing](https://github.com/tokio-rs/tracing) | Structured, async-aware logging with web UI capture |
 | Token Counting | [tiktoken-rs](https://github.com/zurawiki/tiktoken-rs) | GPT-compatible tokenizer (cl100k_base) |
-| TUI Dashboard | [ratatui](https://github.com/ratatui-org/ratatui) | Terminal UI for real-time monitoring |
-| Web UI | React + Vite (embedded via rust-embed) | Browser-based setup and monitoring |
+| TLS Termination | [nginx](https://nginx.org/) | Reverse proxy with Let's Encrypt TLS via certbot |
+| Frontend | React 19 + Vite 7 + TypeScript 5.9 | Browser-based admin dashboard served by nginx |
 
 ---
 
@@ -264,9 +308,9 @@ flowchart TD
 
 The gateway does not implement its own LLM logic. It is a pure protocol translator: it accepts requests in OpenAI or Anthropic format, converts them to the Kiro wire format, and converts responses back. The `converters/core.rs` module defines a `UnifiedMessage` type that serves as the intermediate representation between all three formats.
 
-### 2. Always-On TLS
+### 2. TLS at the Edge
 
-TLS is mandatory. If no custom certificate is provided, the gateway generates a self-signed certificate at startup. This simplifies deployment security — there is no "HTTP mode" to accidentally expose.
+TLS is handled by nginx at the edge. The Rust backend runs plain HTTP on an internal Docker network, simplifying the backend code and deferring certificate management to certbot and nginx. The `init-certs.sh` script handles first-time Let's Encrypt certificate provisioning.
 
 ### 3. Streaming-First Architecture
 
@@ -278,7 +322,11 @@ The auth system implements graceful degradation: if a token refresh fails but th
 
 ### 5. Setup-First Mode
 
-The gateway can start with no configuration. When `setup_complete` is `false`, only the Web UI is accessible. Users complete initial setup (OAuth device code flow, region selection) through the browser, and the gateway transitions to full operation without a restart.
+On first run (no admin user in DB), the gateway blocks `/v1/*` proxy endpoints with 503 and only serves the web UI. The first user to complete Google SSO setup is assigned the admin role. Once setup is complete, the gateway transitions to full operation without a restart.
+
+### 6. Per-User Isolation
+
+Each user has their own API keys and Kiro credentials. The middleware identifies users by SHA-256 hashing the provided API key, looking up the user in cache/DB, and injecting per-user Kiro credentials into the request context. This replaces the old global `PROXY_API_KEY` model.
 
 ---
 
@@ -286,22 +334,21 @@ The gateway can start with no configuration. When `setup_complete` is `false`, o
 
 | File | Description |
 |------|-------------|
-| `src/main.rs` | Entry point, startup orchestration, Axum app builder |
-| `src/config.rs` | Configuration from CLI + ENV + .env + PostgreSQL |
-| `src/error.rs` | `ApiError` enum with `IntoResponse` for HTTP error mapping |
-| `src/cache.rs` | Thread-safe model metadata cache (DashMap) |
-| `src/resolver.rs` | Model name normalization and resolution pipeline |
-| `src/auth/` | OAuth token lifecycle (manager, credentials, refresh, oauth, types) |
-| `src/http_client.rs` | Connection-pooled HTTP client with retry + backoff |
-| `src/routes/mod.rs` | Axum route handlers and AppState definition |
-| `src/streaming/mod.rs` | AWS Event Stream parser, SSE formatters |
-| `src/thinking_parser.rs` | FSM for extracting `<thinking>` blocks from streams |
-| `src/converters/` | Bidirectional format translation (OpenAI/Anthropic/Kiro) |
-| `src/models/` | Request/response type definitions per API format |
-| `src/middleware/` | Auth, CORS, HSTS, and debug logging middleware |
-| `src/tokenizer.rs` | Token counting with Claude correction factor |
-| `src/truncation.rs` | Truncation detection and recovery injection |
-| `src/metrics/` | Request latency, token usage, and error tracking |
-| `src/dashboard/` | Optional ratatui TUI for real-time monitoring |
-| `src/web_ui/` | Web dashboard (React SPA, config API, SSE logs) |
-| `src/tls.rs` | TLS configuration (self-signed or custom cert) |
+| `backend/src/main.rs` | Entry point, startup orchestration, Axum app builder |
+| `backend/src/config.rs` | Configuration from ENV + `.env` + PostgreSQL overlay |
+| `backend/src/error.rs` | `ApiError` enum with `IntoResponse` for HTTP error mapping |
+| `backend/src/cache.rs` | Thread-safe model metadata cache (DashMap) |
+| `backend/src/resolver.rs` | Model name normalization and resolution pipeline |
+| `backend/src/auth/` | OAuth token lifecycle (manager, credentials, refresh, oauth, types) |
+| `backend/src/http_client.rs` | Connection-pooled HTTP client with retry + backoff |
+| `backend/src/routes/mod.rs` | Axum route handlers and AppState definition |
+| `backend/src/streaming/mod.rs` | AWS Event Stream parser, SSE formatters |
+| `backend/src/thinking_parser.rs` | FSM for extracting `<thinking>` blocks from streams |
+| `backend/src/converters/` | Bidirectional format translation (OpenAI/Anthropic/Kiro) |
+| `backend/src/models/` | Request/response type definitions per API format |
+| `backend/src/middleware/` | Auth (per-user API key via SHA-256), CORS, debug logging |
+| `backend/src/tokenizer.rs` | Token counting with Claude correction factor |
+| `backend/src/truncation.rs` | Truncation detection and recovery injection |
+| `backend/src/metrics/` | Request latency, token usage, and error tracking |
+| `backend/src/log_capture.rs` | Tracing capture layer for web UI SSE log streaming |
+| `backend/src/web_ui/` | Web UI API: Google SSO, sessions, per-user API keys, Kiro tokens, config, users |

@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🦀 rkgw — Rust Kiro Gateway
+# rkgw — Rust Kiro Gateway
 
-**High-performance proxy gateway for Kiro API (AWS CodeWhisperer)**
+**Multi-user proxy gateway for Kiro API (AWS CodeWhisperer)**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
@@ -15,248 +15,177 @@ _A Rust rewrite of [kiro-gateway](https://github.com/jwadow/kiro-gateway) — Us
 
 ---
 
-## 🙏 Attribution
+## Attribution
 
 This project is a Rust rewrite of the original [kiro-gateway](https://github.com/jwadow/kiro-gateway) by [@Jwadow](https://github.com/jwadow). The original project is written in Python using FastAPI.
 
-**Why Rust?**
+---
 
-- ⚡ Faster startup time and lower memory footprint
-- 🔒 Memory safety without garbage collection
-- 📦 Single binary deployment — no runtime dependencies
+## Supported Models
+
+| Model                  | Description                                           |
+| ---------------------- | ----------------------------------------------------- |
+| **Claude Opus 4.6**    | Latest flagship. Adaptive thinking, complex reasoning |
+| **Claude Sonnet 4.6**  | Latest balanced. Coding, writing, general-purpose     |
+| **Claude Haiku 4.5**   | Lightning fast. Quick responses, simple tasks         |
+
+> **Smart Model Resolution:** Use any model name format — `claude-sonnet-4-6`, `claude-sonnet-4.6`, or versioned names like `claude-sonnet-4-20250514`. The gateway normalizes them automatically.
 
 ---
 
-## 🤖 Supported Models
+## Features
 
-| Model                    | Description                                               |
-| ------------------------ | --------------------------------------------------------- |
-| 🧠 **Claude Opus 4.6**   | Latest flagship. Adaptive thinking, complex reasoning     |
-| 🚀 **Claude Sonnet 4.6** | Latest balanced. Coding, writing, general-purpose         |
-| ⚡ **Claude Haiku 4.5**  | Lightning fast. Quick responses, simple tasks             |
-
-> 💡 **Smart Model Resolution:** Use any model name format — `claude-sonnet-4-6`, `claude-sonnet-4.6`, or versioned names like `claude-sonnet-4-20250514`. The gateway normalizes them automatically.
-
----
-
-## ✨ Features
-
-| Feature                         | Description                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------ |
-| 🔌 **OpenAI-compatible API**    | Works with any OpenAI-compatible tool                                                      |
-| 🔌 **Anthropic-compatible API** | Native `/v1/messages` endpoint                                                             |
-| 🧠 **Extended Thinking**        | Reasoning support                                                                          |
-| 👁️ **Vision Support**           | Send images to model                                                                       |
-| 🛠️ **Tool Calling**             | Function calling support                                                                   |
-| 💬 **Full message history**     | Complete conversation context                                                              |
-| 📡 **Streaming**                | Full SSE streaming support                                                                 |
-| 🔄 **Retry Logic**              | Automatic retries on errors                                                                |
-| 🔐 **Smart token management**   | Automatic refresh before expiration                                                        |
-| 🔒 **HTTPS / TLS**              | Built-in TLS support with auto-generated self-signed certificates or custom cert/key files |
-| 📊 **Live Dashboard**           | Real-time TUI with metrics, logs, and token usage (toggle with `--dashboard` or press `d`) |
+| Feature                         | Description                                                        |
+| ------------------------------- | ------------------------------------------------------------------ |
+| **OpenAI-compatible API**       | Works with any OpenAI-compatible tool (`/v1/chat/completions`)     |
+| **Anthropic-compatible API**    | Native `/v1/messages` endpoint                                     |
+| **Extended Thinking**           | Reasoning support with adaptive effort levels                      |
+| **Vision Support**              | Send images to model                                               |
+| **Tool Calling**                | Function calling support                                           |
+| **Full message history**        | Complete conversation context                                      |
+| **SSE Streaming**               | Full server-sent events streaming support                          |
+| **Retry Logic**                 | Automatic retries with truncation recovery                         |
+| **Multi-user support**          | Per-user Kiro credentials and API keys                             |
+| **Google SSO**                  | Sign in with Google (PKCE + OpenID Connect) for web UI             |
+| **Role-based access control**   | Admin and User roles with granular permissions                     |
+| **Web UI Dashboard**            | Real-time metrics, logs, configuration, and user management        |
+| **Let's Encrypt TLS**           | Automated HTTPS via certbot with auto-renewal                      |
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
-- [Kiro CLI](https://kiro.dev/cli/) installed and logged in with AWS SSO (Builder ID)
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
+- A domain name pointing to your server (for Let's Encrypt TLS)
+- [Google OAuth credentials](https://console.cloud.google.com/apis/credentials) (Client ID + Secret)
+- [Kiro CLI](https://kiro.dev/cli/) installed and logged in (for your refresh token)
 
-### Installation via Homebrew (Recommended)
-
-```bash
-# Add the tap
-brew tap if414013/tvps
-
-# Install kiro-gateway
-brew install kiro-gateway
-
-# Run (interactive setup on first run)
-kiro-gateway
-```
-
-### Installation from Source
-
-Requires Rust 1.75+ (install via [rustup](https://rustup.rs/))
+### 1. Clone and configure
 
 ```bash
-# Clone the repository
 git clone https://github.com/if414013/rkgw.git
 cd rkgw
-
-# Build release binary
-cargo build --release
-
-# Run
-./target/release/kiro-gateway
+cp .env.example .env
 ```
 
-The server will be available at `http://localhost:8000` or `https://localhost:8000` if TLS is enabled.
+Edit `.env` with your values:
 
-🔒 **Default Binding:** The gateway defaults to `127.0.0.1` (localhost only) for security. To allow network access, use `--host 0.0.0.0 --tls`. See the [Security](#-security) section for details.
+```env
+DOMAIN=gateway.example.com
+EMAIL=admin@example.com
+POSTGRES_PASSWORD=your_secure_password
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
+```
 
-To enable HTTPS with an auto-generated self-signed certificate:
+### 2. Provision TLS certificates
 
 ```bash
-kiro-gateway --tls
+chmod +x init-certs.sh
+DOMAIN=gateway.example.com EMAIL=admin@example.com ./init-certs.sh
 ```
 
-The server will be available at `https://localhost:8000`.
+This creates a temporary self-signed cert so nginx can start, then obtains a real Let's Encrypt certificate via certbot.
 
-> **Note:** The auto-generated self-signed certificate only covers `localhost`, `127.0.0.1`, and `::1`. If you bind to a network address with `--host 0.0.0.0` and clients connect via a LAN IP or hostname, they will see certificate name mismatch errors. For network access, provide your own certificate with `--tls-cert` and `--tls-key` that includes the appropriate SANs.
+### 3. Start the gateway
+
+```bash
+docker compose up -d
+```
+
+### 4. Complete setup
+
+Open `https://gateway.example.com/_ui/` in your browser. Sign in with Google — the first user automatically gets the **admin** role. From the web UI you can:
+
+- Add your Kiro refresh token (run `kiro login` first)
+- Generate per-user API keys for programmatic access
+- Configure model settings, timeouts, and debug options
+- Manage additional users and their roles
+
+> **Setup-only mode:** Until the first admin completes setup, the gateway returns 503 on all `/v1/*` proxy endpoints.
 
 ---
 
-## ⚙️ Configuration
+## Architecture
 
-On first run, `kiro-gateway` starts in setup-only mode and redirects to the Web UI at `/_ui/setup`. The setup wizard will:
-
-- Prompt for a password to protect your gateway
-- Ask for your Kiro refresh token (run `kiro login` first)
-- Let you choose the AWS region
-
-All configuration is stored in PostgreSQL and managed exclusively through the Web UI.
-
-### Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-# Required - PostgreSQL connection string
-DATABASE_URL="postgres://kiro:kiro_secret@localhost:5432/kiro_gateway"
-
-# Server binding (optional, defaults to 127.0.0.1:8000 for local-only access)
-# For network access: SERVER_HOST=0.0.0.0 (requires --tls flag)
-# SERVER_HOST=127.0.0.1
-# SERVER_PORT=8000
-
-# TLS / HTTPS (optional)
-# TLS_ENABLED=true
-# TLS_CERT=/path/to/cert.pem
-# TLS_KEY=/path/to/key.pem
+```
+Internet → nginx (frontend, :443/:80)
+              ├── /_ui/*           → React SPA static files
+              ├── /_ui/api/*       → proxy → backend:8000
+              ├── /v1/*            → proxy → backend:8000 (SSE streaming)
+              └── /.well-known/    → certbot webroot
+           certbot   → Let's Encrypt cert auto-renewal (12h cycle)
+           backend   → Rust API server (plain HTTP, internal only)
+           db        → PostgreSQL 16
 ```
 
-### HTTPS / TLS
+Four docker-compose services:
 
-The gateway supports HTTPS out of the box with three usage modes:
-
-**1. Auto-generated self-signed certificate** — just add `--tls`:
-
-```bash
-kiro-gateway --tls
-```
-
-A self-signed certificate is generated automatically and saved to `~/.kiro-gateway/tls/` for reuse across restarts. Certificates are valid for 365 days and are automatically regenerated before expiry.
-
-> ⚠️ Self-signed certificates are not trusted by browsers and clients by default. Use `--tls-cert` and `--tls-key` for production deployments.
-
-**2. Custom certificate** — provide your own PEM files:
-
-```bash
-kiro-gateway --tls --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
-```
-
-**3. Auto-enable via cert/key** — TLS activates automatically when both paths are provided:
-
-```bash
-kiro-gateway --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
-```
-
-All options also work via environment variables: `TLS_ENABLED`, `TLS_CERT`, `TLS_KEY`.
-
-| CLI Flag       | Environment Variable | Description                                      |
-| -------------- | -------------------- | ------------------------------------------------ |
-| `--tls`        | `TLS_ENABLED`        | Enable HTTPS (auto-generates cert if none given) |
-| `--tls-cert`   | `TLS_CERT`           | Path to TLS certificate file (PEM format)        |
-| `--tls-key`    | `TLS_KEY`            | Path to TLS private key file (PEM format)        |
+| Service      | Image                       | Description                                        |
+| ------------ | --------------------------- | -------------------------------------------------- |
+| **db**       | `postgres:16-alpine`        | PostgreSQL database for config, users, and API keys |
+| **backend**  | `kiro-gateway-backend`      | Rust API server (Axum 0.7 + Tokio), plain HTTP     |
+| **frontend** | `kiro-gateway-frontend`     | nginx serving React SPA + reverse proxy to backend  |
+| **certbot**  | `certbot/certbot`           | Let's Encrypt certificate provisioning and renewal  |
 
 ### Authentication
 
-The gateway uses Kiro refresh tokens for authentication. Run `kiro login` to authenticate with the Kiro CLI, then provide your refresh token during the Web UI setup wizard. The gateway automatically refreshes tokens before expiration.
+Two separate auth systems:
+
+1. **API key auth** (for `/v1/*` proxy endpoints): Clients send `Authorization: Bearer <api-key>` or `x-api-key` header. The middleware SHA-256 hashes the key, looks up the user in cache/DB, and injects per-user Kiro credentials into the request.
+
+2. **Google SSO** (for `/_ui/api/*` web UI): PKCE + OpenID Connect flow. Session cookie `kgw_session` (24h TTL), CSRF token in separate cookie. Admin vs User roles.
 
 ---
 
-## 🔒 Security
+## Configuration
 
-### Server Binding
+### Environment Variables
 
-**Local-only use (127.0.0.1 - Recommended for personal use)**
+Set in `.env` (see `.env.example`):
 
-When you bind to `127.0.0.1` (localhost), the gateway is only accessible from your local machine. This is the safest option for personal development and testing.
+| Variable                | Required | Description                                              |
+| ----------------------- | -------- | -------------------------------------------------------- |
+| `DOMAIN`                | Yes      | Domain for Let's Encrypt TLS certs                       |
+| `EMAIL`                 | Yes      | Let's Encrypt notification email                         |
+| `POSTGRES_PASSWORD`     | Yes      | PostgreSQL password                                      |
+| `GOOGLE_CLIENT_ID`      | Yes      | Google OAuth Client ID                                   |
+| `GOOGLE_CLIENT_SECRET`  | Yes      | Google OAuth Client Secret                               |
+| `GOOGLE_CALLBACK_URL`   | Yes      | OAuth callback URL                                       |
 
-```bash
-kiro-gateway --host 127.0.0.1
-```
+Auto-set by docker-compose: `DATABASE_URL`, `SERVER_HOST` (0.0.0.0), `SERVER_PORT` (8000).
 
-✅ **Secure by Default:** The gateway defaults to `127.0.0.1` (localhost only). This is the recommended setting for personal use.
+### Runtime Configuration
 
-**Network-accessible use (0.0.0.0 - Use with caution)**
-
-Binding to `0.0.0.0` exposes the gateway to all network interfaces, making it accessible from other devices on your local network or potentially the internet if your firewall allows it.
-
-```bash
-kiro-gateway --host 0.0.0.0
-```
-
-⚠️ **Security implications:**
-- Anyone on your network can access the gateway if they know your IP address and port
-- Traffic is unencrypted by default (HTTP), exposing your API key and data in plain text
-- The `PROXY_API_KEY` is your only protection against unauthorized access
-- If port-forwarded or exposed to the internet, anyone can attempt to access your gateway
-
-**If you must use 0.0.0.0, always enable TLS:**
-
-```bash
-kiro-gateway --host 0.0.0.0 --tls
-```
-
-This encrypts all traffic between clients and the gateway, protecting your credentials and data from network sniffing.
-
-🛡️ **Enforcement:** The gateway enforces TLS for non-localhost bindings. If you attempt to start with `0.0.0.0` or another non-localhost address without TLS, the gateway will refuse to start with an error:
-
-> Error: TLS is required when binding to non-localhost addresses (current: 0.0.0.0). Either enable TLS with --tls flag, or bind to localhost with --host 127.0.0.1
-
-This validation prevents accidental exposure of unencrypted traffic to your network.
-
-### Trusting Self-Signed Certificates (macOS)
-
-When using `--tls` without custom certificates, the gateway generates a self-signed certificate saved to `~/.kiro-gateway/tls/`. Clients will not trust this certificate by default, resulting in connection errors.
-
-**GUI Method (Keychain Access):**
-
-1. Open **Keychain Access** application
-2. Select the **System** keychain in the left sidebar
-3. Drag the certificate file from `~/.kiro-gateway/tls/` into the Keychain Access window
-4. Double-click the imported certificate entry
-5. Expand the **Trust** section
-6. Set **When using this certificate** to **Always Trust**
-7. Close the dialog and enter your admin password when prompted
-
-**CLI Method (Terminal):**
-
-```bash
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/.kiro-gateway/tls/cert.pem
-```
-
-Replace `cert.pem` with the actual certificate filename in your `~/.kiro-gateway/tls/` directory.
-
-> 💡 **Tip:** After trusting the certificate, restart your client application to ensure it picks up the new trust settings. For curl, you can also use the `-k` flag to skip certificate verification during testing.
+All runtime settings — region, timeouts, debug mode, allowed domains, etc. — are managed through the Web UI at `/_ui/` and persisted in PostgreSQL. There are no CLI flags or additional environment variables for runtime configuration.
 
 ---
 
-## 🏗️ Architecture
+## API Reference
 
-<details>
-<summary>View architecture documentation</summary>
+### Endpoints
 
-For detailed architecture documentation including component diagrams, data flows, and implementation details, see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+**Proxy (auth via per-user API key):**
+- `POST /v1/chat/completions` — OpenAI-compatible
+- `POST /v1/messages` — Anthropic-compatible
+- `GET /v1/models` — List available models
 
-</details>
+**Infrastructure:**
+- `GET /health` — Health check
+- `GET /` — Status JSON
+
+**Web UI (`/_ui/`):**
+- Dashboard with real-time metrics and logs (SSE)
+- User management and role-based access control
+- Per-user API key generation and Kiro token management
+- Gateway configuration (region, timeouts, allowed domains)
 
 ---
 
-## 💡 API Usage Examples
+## API Usage Examples
 
 <details>
 <summary>View API usage examples</summary>
@@ -264,12 +193,11 @@ For detailed architecture documentation including component diagrams, data flows
 ### OpenAI API
 
 ```bash
-# use https if TLS is enabled
-curl http://localhost:8000/v1/chat/completions \
-  -H "Authorization: Bearer my-super-secret-password-123" \
+curl https://gateway.example.com/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-sonnet-4-5",
+    "model": "claude-sonnet-4-6",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -278,48 +206,43 @@ curl http://localhost:8000/v1/chat/completions \
 ### Anthropic API
 
 ```bash
-# use https if TLS is enabled
-curl http://localhost:8000/v1/messages \
-  -H "x-api-key: my-super-secret-password-123" \
+curl https://gateway.example.com/v1/messages \
+  -H "x-api-key: YOUR_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-sonnet-4-5",
+    "model": "claude-sonnet-4-6",
     "max_tokens": 1024,
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
 
-> 💡 **Using HTTPS?** Replace `http://` with `https://` in the URLs above. If using a self-signed certificate, add `-k` to curl to skip certificate verification.
+> Replace `YOUR_API_KEY` with a per-user API key generated from the Web UI at `/_ui/`.
 
 </details>
 
 ---
 
-## 🖥️ OpenCode Setup
+## Client Setup
+
+### OpenCode
 
 <details>
 <summary>View OpenCode configuration</summary>
 
-To use this gateway with [OpenCode](https://opencode.ai), add the following provider configuration to your global config file at `~/.config/opencode/opencode.json`. This makes the Kiro provider available across all your projects.
+To use this gateway with [OpenCode](https://opencode.ai), add the following provider configuration to `~/.config/opencode/opencode.json`:
 
-For more details on OpenCode configuration, see the [OpenCode Config Documentation](https://opencode.ai/docs/config/).
-
-https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
-
-### Tested Model Limits
-
-Limits below were empirically tested using `probe_limits` against a live Kiro gateway (see [docs/probe-limits.md](docs/probe-limits.md)):
+#### Tested Model Limits
 
 | Model               | Context (tokens) | Max output tokens | Notes                              |
 | ------------------- | :--------------: | :---------------: | ---------------------------------- |
 | `claude-opus-4.6`   | ~195K            | unknown           | Output probe errored (thinking mode interference) |
-| `claude-sonnet-4.6` | ~195K            | unknown           | Model stopped early — disable thinking to re-probe |
-| `claude-haiku-4.5`  | ~195K            | unknown           | Model stopped early — disable thinking to re-probe |
+| `claude-sonnet-4.6` | ~195K            | unknown           | Model stopped early |
+| `claude-haiku-4.5`  | ~195K            | unknown           | Model stopped early |
 
-> Output token cap is unknown because the gateway has thinking mode enabled by default. Restart with `FAKE_REASONING=false` and re-run `probe_limits` to get accurate output caps. Anthropic's documented standard limit is **8192 tokens** for all Claude 4.x models.
+> Output token cap is unknown because the gateway has thinking mode enabled by default. Anthropic's documented standard limit is **8192 tokens** for all Claude 4.x models.
 
-### Configuration
+#### Configuration
 
 ```json
 {
@@ -329,8 +252,8 @@ Limits below were empirically tested using `probe_limits` against a live Kiro ga
       "npm": "@ai-sdk/openai-compatible",
       "name": "Kiro Proxy",
       "options": {
-        "baseURL": "http://127.0.0.1:8000/v1",  // use https if TLS is enabled
-        "apiKey": "your-proxy-api-key"
+        "baseURL": "https://gateway.example.com/v1",
+        "apiKey": "YOUR_API_KEY"
       },
       "models": {
         "auto": {
@@ -387,13 +310,11 @@ Limits below were empirically tested using `probe_limits` against a live Kiro ga
 }
 ```
 
-> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY` environment variable. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file. If using HTTPS, change `http://` to `https://` in the `baseURL`.
+> Replace `gateway.example.com` with your domain and `YOUR_API_KEY` with a per-user API key from the Web UI.
 
 </details>
 
----
-
-## 🖥️ Claude Code CLI Setup
+### Claude Code CLI
 
 <details>
 <summary>View Claude Code CLI configuration</summary>
@@ -404,80 +325,66 @@ To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/cl
 
 **One-liner:**
 
-**Using HTTP**
 ```bash
-ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
-```
-
-💡 **Using HTTPS with self-signed certificate?** Replace `http://` with `https://` in `ANTHROPIC_BASE_URL` and set `NODE_EXTRA_CA_CERTS` to point to your certificate file:
-```bash
-NODE_EXTRA_CA_CERTS=/path/to/cert.pem ANTHROPIC_BASE_URL=https://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
+ANTHROPIC_BASE_URL=https://gateway.example.com ANTHROPIC_AUTH_TOKEN=YOUR_API_KEY CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
 ```
 
 **Or add to your shell profile** (`~/.bashrc`, `~/.zshrc`, etc.):
 
 ```bash
-# Claude Code CLI configuration for Kiro Gateway
-export ANTHROPIC_BASE_URL=http://127.0.0.1:8000 # use https if TLS is enabled
-export ANTHROPIC_AUTH_TOKEN=your-proxy-api-key
+# Claude Code CLI configuration for Kiro Gateway
+export ANTHROPIC_BASE_URL=https://gateway.example.com
+export ANTHROPIC_AUTH_TOKEN=YOUR_API_KEY
 export CLAUDE_CODE_ENABLE_TELEMETRY=0
 export DISABLE_PROMPT_CACHING=1
 export DISABLE_NON_ESSENTIAL_MODEL_CALLS=1
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-
-# [Optional] Required when using HTTPS with self-signed certificate
-export NODE_EXTRA_CA_CERTS="/path/to/cert.pem"
 ```
 
 | Variable                                   | Description                                       |
 | ------------------------------------------ | ------------------------------------------------- |
 | `ANTHROPIC_BASE_URL`                       | Points Claude Code to your gateway                |
-| `ANTHROPIC_AUTH_TOKEN`                     | Your `PROXY_API_KEY` value                        |
-| `NODE_EXTRA_CA_CERTS`                      | Path to certificate file (required for self-signed HTTPS) |
+| `ANTHROPIC_AUTH_TOKEN`                      | Your per-user API key from the Web UI             |
 | `CLAUDE_CODE_ENABLE_TELEMETRY`             | Disable telemetry                                 |
 | `DISABLE_PROMPT_CACHING`                   | Disable prompt caching (not supported by gateway) |
 | `DISABLE_NON_ESSENTIAL_MODEL_CALLS`        | Reduce unnecessary API calls                      |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable non-essential network traffic             |
 
-> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file. If using HTTPS, change `http://` to `https://` in `ANTHROPIC_BASE_URL` and set `NODE_EXTRA_CA_CERTS` to point to your certificate file.
+> Replace `gateway.example.com` with your domain and `YOUR_API_KEY` with a per-user API key from the Web UI.
 
 </details>
 
----
-
-## 🖥️ Zed Editor Setup
+### Zed Editor
 
 <details>
 <summary>View Zed Editor configuration</summary>
 
-To use this gateway with the [Zed Editor](https://zed.dev/)'s ACP Claude Agent, add the following configuration to your Zed settings file at `~/.config/zed/settings.json`:
+To use this gateway with the [Zed Editor](https://zed.dev/)'s ACP Claude Agent, add the following to `~/.config/zed/settings.json`:
 
 ```json
 {
   "agent_servers": {
     "claude": {
       "env": {
-        "ANTHROPIC_BASE_URL": "http://127.0.0.1:8000", // use https if TLS is enabled
-        "ANTHROPIC_AUTH_TOKEN": "your-proxy-api-key",
+        "ANTHROPIC_BASE_URL": "https://gateway.example.com",
+        "ANTHROPIC_AUTH_TOKEN": "YOUR_API_KEY",
         "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
         "DISABLE_PROMPT_CACHING": "1",
         "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
-        // [Optional] Required when using HTTPS with self-signed certificate
-        // "NODE_EXTRA_CA_CERTS": "/path/to/cert.pem"
       }
     }
   }
 }
 ```
 
-> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file. If using HTTPS, change `http://` to `https://` in `ANTHROPIC_BASE_URL`. After updating the settings, restart Zed for the changes to take effect.
+> Replace `gateway.example.com` with your domain and `YOUR_API_KEY` with a per-user API key from the Web UI. Restart Zed after updating settings.
 
 </details>
 
 ---
 
-## 🚧 Known Limitations
+## Known Limitations
 
 <details>
 <summary>View known limitations</summary>
@@ -518,48 +425,59 @@ MCP (Model Context Protocol) tools run locally on your machine, so they bypass t
 | `mcp-server-fetch` | Fetches and extracts content from any URL |
 | `exa-mcp-server` | AI-powered web search via [Exa](https://exa.ai/) (requires an API key) |
 
-> 💡 After adding these, restart Claude Code to pick up the new MCP configuration.
+> After adding these, restart Claude Code to pick up the new MCP configuration.
 
 </details>
 
 ---
 
-## 🔧 Building
+## Building from Source
+
+<details>
+<summary>View build instructions</summary>
+
+### Backend (Rust)
 
 ```bash
-# Debug build
-cargo build
-
-# Release build (optimized)
-cargo build --release
-
-# Run the gateway
-cargo run --bin kiro-gateway --release
-
-# Probe model limits (requires gateway running)
-cargo run --bin probe_limits --release -- --model claude-sonnet-4.6
-cargo run --bin probe_limits --release -- --all-models
-
-# Run tests
-cargo test
-
-# Run benchmarks
-cargo bench
+cd backend && cargo build                        # Debug build
+cd backend && cargo build --release              # Release build
+cd backend && cargo clippy                       # Lint
+cd backend && cargo fmt                          # Format
+cd backend && cargo test --lib                   # Unit tests
+cd backend && cargo test --features test-utils   # Integration tests
 ```
+
+### Frontend (React)
+
+```bash
+cd frontend && npm install    # Install dependencies
+cd frontend && npm run build  # Production build (tsc -b && vite build)
+cd frontend && npm run lint   # ESLint
+cd frontend && npm run dev    # Dev server (port 5173, proxies /_ui/api → localhost:8000)
+```
+
+### Docker
+
+```bash
+docker compose build    # Build all images
+docker compose up -d    # Start all services
+```
+
+</details>
 
 ---
 
-## 📜 License
+## License
 
 This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
 This means:
 
-- ✅ You can use, modify, and distribute this software
-- ✅ You can use it for commercial purposes
-- ⚠️ **You must disclose source code** when you distribute the software
-- ⚠️ **Network use is distribution** — if you run a modified version on a server, you must make the source code available
-- ⚠️ Modifications must be released under the same license
+- You can use, modify, and distribute this software
+- You can use it for commercial purposes
+- **You must disclose source code** when you distribute the software
+- **Network use is distribution** — if you run a modified version on a server, you must make the source code available
+- Modifications must be released under the same license
 
 See the [LICENSE](LICENSE) file for the full license text.
 
@@ -569,7 +487,7 @@ By submitting a contribution to this project, you agree to the terms of our [Con
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This project is not affiliated with, endorsed by, or sponsored by Amazon Web Services (AWS), Anthropic, or Kiro IDE. Use at your own risk and in compliance with the terms of service of the underlying APIs.
 
@@ -577,6 +495,6 @@ This project is not affiliated with, endorsed by, or sponsored by Amazon Web Ser
 
 <div align="center">
 
-**[⬆ Back to Top](#-rkgw--rust-kiro-gateway)**
+**[Back to Top](#rkgw--rust-kiro-gateway)**
 
 </div>

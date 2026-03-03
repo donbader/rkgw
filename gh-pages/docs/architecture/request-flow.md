@@ -21,13 +21,13 @@ This page traces the complete lifecycle of a request through Kiro Gateway — fr
 
 ## Complete Request Lifecycle
 
-Every request passes through the same pipeline regardless of whether it originates from an OpenAI or Anthropic client. The differences are in the converter modules used for format translation.
+Every request passes through nginx for TLS termination, then the backend's middleware and handler pipeline. The differences between OpenAI and Anthropic paths are in the converter modules used for format translation.
 
 ```mermaid
 sequenceDiagram
     participant Client
+    participant Nginx as nginx (TLS)
     participant CORS as CORS Layer
-    participant HSTS as HSTS Middleware
     participant Debug as Debug Logger
     participant Auth as Auth Middleware
     participant Setup as Setup Guard
@@ -44,17 +44,19 @@ sequenceDiagram
     participant OutConverter as Output Converter
     participant SSE as SSE Formatter
 
-    Client->>CORS: HTTP Request
-    CORS->>HSTS: Add CORS headers
-    HSTS->>Debug: Add Strict-Transport-Security
+    Client->>Nginx: HTTPS Request
+    Nginx->>Nginx: TLS termination
+    Nginx->>CORS: HTTP Request (plain)
+
+    CORS->>Debug: Add CORS headers
     Debug->>Auth: Log request (if debug mode)
 
-    Auth->>Auth: Check Authorization: Bearer or x-api-key
+    Auth->>Auth: SHA-256 hash API key, lookup user in cache/DB
     alt Invalid or missing key
         Auth-->>Client: 401 Unauthorized
     end
 
-    Auth->>Setup: Authenticated request
+    Auth->>Setup: Authenticated request (user identity injected)
     Setup->>Setup: Check setup_complete flag
     alt Setup not complete
         Setup-->>Client: 503 Service Unavailable
@@ -76,9 +78,9 @@ sequenceDiagram
     Converter-->>Handler: KiroPayload
 
     Handler->>TokenCount: Count input tokens
-    Handler->>AuthMgr: Get access token
-    AuthMgr->>AuthMgr: Check expiry threshold
-    alt Token expiring soon
+    Handler->>AuthMgr: Get per-user access token
+    AuthMgr->>AuthMgr: Check kiro_token_cache (4-min TTL)
+    alt Token expired or missing
         AuthMgr->>AuthMgr: refresh_aws_sso_oidc()
     end
     AuthMgr-->>Handler: Valid access token
@@ -117,41 +119,53 @@ sequenceDiagram
 
 ## Step-by-Step Walkthrough
 
-### Step 1: Middleware Stack
+### Step 1: nginx (TLS Termination)
 
-Every incoming request passes through three middleware layers applied globally in `src/main.rs:build_app()`:
+All incoming requests first hit nginx, which handles:
+- **TLS termination** using Let's Encrypt certificates (managed by certbot)
+- **Reverse proxying** to the backend on port 8000 (plain HTTP)
+- **SSE support** with proper buffering disabled for `/v1/*` streaming endpoints
+
+nginx routes:
+- `/_ui/*` (not `/_ui/api/*`) → serves React SPA static files
+- `/_ui/api/*` → proxies to `backend:8000`
+- `/v1/*` → proxies to `backend:8000` with SSE buffering disabled
+- `/.well-known/acme-challenge/` → certbot webroot for certificate validation
+
+### Step 2: Middleware Stack
+
+After nginx proxies the request, it passes through the backend's middleware layers applied in `backend/src/main.rs:build_app()`:
 
 1. **CORS Layer** (`middleware::cors_layer()`) — Adds permissive CORS headers (`Access-Control-Allow-Origin: *`). Handles OPTIONS preflight requests automatically via `tower-http::CorsLayer`.
 
-2. **HSTS Middleware** (`middleware::hsts_middleware()`) — Adds `Strict-Transport-Security: max-age=31536000` to every response since TLS is always enabled.
+2. **Debug Logger** (`middleware::debug_middleware()`) — When `debug_mode` is `Errors` or `All`, captures request/response bodies for troubleshooting. Controlled by the `DEBUG_MODE` config.
 
-3. **Debug Logger** (`middleware::debug_middleware()`) — When `debug_mode` is `Errors` or `All`, captures request/response bodies for troubleshooting. Controlled by the `DEBUG_MODE` config.
+### Step 3: Authentication
 
-### Step 2: Authentication
+Auth middleware is applied per-route group, not globally. Health check routes (`/`, `/health`) and Web UI routes (`/_ui/api/*`) bypass API key authentication.
 
-Auth middleware is applied per-route group, not globally. Health check routes (`/`, `/health`) and Web UI routes (`/_ui/*`) bypass authentication.
+For protected routes (`/v1/chat/completions`, `/v1/messages`, `/v1/models`), the middleware in `backend/src/middleware/mod.rs`:
 
-For protected routes (`/v1/chat/completions`, `/v1/messages`, `/v1/models`), the middleware in `src/middleware/mod.rs:auth_middleware()` checks:
+1. Extracts the API key from `Authorization: Bearer {key}` or `x-api-key: {key}` header
+2. SHA-256 hashes the key
+3. Looks up the hash in `api_key_cache` (DashMap) for fast path, or PostgreSQL on cache miss
+4. If found, injects the user identity and Kiro credentials into request extensions
+5. If not found, returns `401 Unauthorized` JSON error
 
-1. `Authorization: Bearer {PROXY_API_KEY}` header
-2. `x-api-key: {PROXY_API_KEY}` header
+### Step 4: Setup Guard
 
-If neither matches, a `401 Unauthorized` JSON error is returned. The `PROXY_API_KEY` is read from the shared `Config` via `RwLock`, allowing it to be updated at runtime through the Web UI.
+The setup guard checks the `setup_complete` `AtomicBool`. If initial setup hasn't been completed (no admin user exists), API routes return `503 Service Unavailable` with a message directing users to the Web UI.
 
-### Step 3: Setup Guard
-
-The setup guard (`web_ui::setup_guard()`) checks the `setup_complete` `AtomicBool`. If initial setup hasn't been completed via the Web UI, API routes return `503 Service Unavailable` with a message directing users to the Web UI.
-
-### Step 4: Request Validation
+### Step 5: Request Validation
 
 Each handler validates the incoming request:
 
 - **OpenAI** (`chat_completions_handler`): Messages array must be non-empty.
 - **Anthropic** (`anthropic_messages_handler`): Messages array must be non-empty and `max_tokens` must be positive. The `anthropic-version` header is logged but not required.
 
-### Step 5: Model Resolution
+### Step 6: Model Resolution
 
-The `ModelResolver` in `src/resolver.rs` normalizes client-provided model names through a multi-stage pipeline:
+The `ModelResolver` in `backend/src/resolver.rs` normalizes client-provided model names through a multi-stage pipeline:
 
 ```mermaid
 flowchart LR
@@ -165,11 +179,11 @@ flowchart LR
 
 The resolution result includes the `source` field (`"hidden"`, `"cache"`, or `"passthrough"`) and an `is_verified` flag indicating whether the model was found in a known list.
 
-### Step 6: Truncation Recovery Injection
+### Step 7: Truncation Recovery Injection
 
 When `truncation_recovery` is enabled (default: `true`), the handler calls `truncation::inject_openai_truncation_recovery()` or `truncation::inject_anthropic_truncation_recovery()` to modify the message array. If a previous response was detected as truncated, a recovery message is injected asking the model to re-emit the truncated content.
 
-### Step 7: Format Conversion (Inbound)
+### Step 8: Format Conversion (Inbound)
 
 The converter modules translate the client request into the Kiro wire format:
 
@@ -179,22 +193,23 @@ The converter modules translate the client request into the Kiro wire format:
 
 Both converters use the shared `UnifiedMessage` type from `converters/core.rs` as an intermediate representation before building the Kiro-specific JSON.
 
-### Step 8: Token Counting
+### Step 9: Token Counting
 
 Input tokens are estimated using `tiktoken-rs` (cl100k_base encoding) with a 1.15x Claude correction factor. This count is used for:
 - Usage reporting in the response
 - Metrics tracking
 - Streaming metrics handles
 
-### Step 9: Authentication Token Retrieval
+### Step 10: Authentication Token Retrieval
 
-The handler calls `auth_manager.get_access_token()` which:
-1. Checks if the token is expiring within the `refresh_threshold` (default: 300 seconds)
-2. If expiring, calls `refresh::refresh_aws_sso_oidc()` to get a new token
-3. On refresh failure, falls back to the existing token if it hasn't actually expired yet (graceful degradation)
-4. Returns the valid access token string
+The handler retrieves the per-user Kiro access token:
+1. Checks `kiro_token_cache` for a cached token (4-minute TTL)
+2. On cache miss, loads the user's Kiro credentials from PostgreSQL
+3. Calls `refresh::refresh_aws_sso_oidc()` to get a fresh access token
+4. Caches the new token in `kiro_token_cache`
+5. On refresh failure, falls back to the existing token if it hasn't actually expired (graceful degradation)
 
-### Step 10: HTTP Request to Kiro API
+### Step 11: HTTP Request to Kiro API
 
 `KiroHttpClient::request_with_retry()` sends the request to `https://codewhisperer.{region}.amazonaws.com/generateAssistantResponse` with:
 - `Authorization: Bearer {access_token}`
@@ -206,9 +221,9 @@ The retry logic handles:
 - **429 Too Many Requests / 5xx**: Exponential backoff with 10% jitter (`delay = base_ms * 2^attempt + jitter`)
 - **Other errors**: Fail immediately
 
-### Step 11: Response Processing
+### Step 12: Response Processing
 
-The Kiro API always returns responses in AWS Event Stream binary format. The streaming module (`src/streaming/mod.rs`) handles two paths:
+The Kiro API always returns responses in AWS Event Stream binary format. The streaming module (`backend/src/streaming/mod.rs`) handles two paths:
 
 #### Streaming Path
 
@@ -253,7 +268,7 @@ While the overall pipeline is identical, there are format-specific differences:
 
 ## Error Handling at Each Stage
 
-The gateway uses a centralized `ApiError` enum (defined in `src/error.rs`) that implements Axum's `IntoResponse` trait. Each variant maps to an HTTP status code:
+The gateway uses a centralized `ApiError` enum (defined in `backend/src/error.rs`) that implements Axum's `IntoResponse` trait. Each variant maps to an HTTP status code:
 
 ```mermaid
 flowchart TD
@@ -290,7 +305,7 @@ Every error is also recorded in the `MetricsCollector` with a category tag (`"au
 
 ## Request Metrics Tracking
 
-Each request is wrapped in a `RequestGuard` (defined in `src/routes/mod.rs`) that:
+Each request is wrapped in a `RequestGuard` (defined in `backend/src/routes/mod.rs`) that:
 
 1. Increments `active_connections` on creation
 2. Records latency, model, and token counts on completion

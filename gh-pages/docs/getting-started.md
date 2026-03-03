@@ -7,7 +7,7 @@ nav_order: 2
 # Getting Started
 {: .no_toc }
 
-This guide walks you through installing, configuring, and running Kiro Gateway for the first time. By the end, you will have a working gateway that translates OpenAI and Anthropic API calls into Kiro (AWS CodeWhisperer) backend requests.
+This guide walks you through setting up Kiro Gateway for the first time. By the end, you will have a working gateway that translates OpenAI and Anthropic API calls into Kiro (AWS CodeWhisperer) backend requests.
 
 <details open markdown="block">
   <summary>Table of contents</summary>
@@ -20,282 +20,167 @@ This guide walks you through installing, configuring, and running Kiro Gateway f
 
 ## What is Kiro Gateway?
 
-Kiro Gateway is a Rust proxy server built with Axum and Tokio. It exposes industry-standard OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) endpoints, translating every request on the fly into the Kiro API format used by AWS CodeWhisperer. This means any tool or library that speaks the OpenAI or Anthropic protocol can use Kiro models without modification.
+Kiro Gateway is a multi-user proxy server that exposes industry-standard OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) endpoints, translating every request into the Kiro API format used by AWS CodeWhisperer. Any tool or library that speaks the OpenAI or Anthropic protocol can use Kiro models without modification.
 
 Key capabilities:
 
 - Bidirectional format translation (OpenAI/Anthropic to Kiro and back)
 - Streaming responses via Server-Sent Events (SSE)
-- Automatic token refresh using AWS SSO OIDC
-- Built-in TLS with auto-generated self-signed certificates
-- Web-based dashboard and configuration UI at `/_ui/`
-- PostgreSQL-backed configuration persistence
+- Multi-user support with Google SSO and per-user API keys
+- Role-based access control (Admin / User)
+- Automatic TLS via Let's Encrypt (certbot + nginx)
+- Web dashboard for configuration, monitoring, and log streaming
+- Per-user Kiro credential management with automatic token refresh
 - Model alias resolution (use familiar model names like `claude-sonnet-4`)
 
 ---
 
 ## Prerequisites
 
-Before you begin, make sure you have the following installed on your system.
-
-### For building from source
-
-| Requirement | Minimum version | How to check |
-|:---|:---|:---|
-| Rust toolchain | 1.75+ (2021 edition) | `rustc --version` |
-| Cargo | (bundled with Rust) | `cargo --version` |
-| PostgreSQL | 14+ | `psql --version` |
-| Node.js | 18+ (for building the web UI) | `node --version` |
-| npm | 9+ | `npm --version` |
-| Git | any recent version | `git --version` |
-
-Install Rust via [rustup](https://rustup.rs/) if you don't have it:
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-```
-
-### For Docker deployment
-
 | Requirement | Minimum version | How to check |
 |:---|:---|:---|
 | Docker | 20.10+ | `docker --version` |
 | Docker Compose | 2.0+ (V2 plugin) | `docker compose version` |
 
-### AWS SSO / Kiro account
+You also need:
 
-You need an active AWS Builder ID or AWS SSO identity that has access to Kiro / Amazon Q Developer. You will authenticate through the Web UI setup wizard using the OAuth device code flow.
+- **A domain name** pointing to your server (for Let's Encrypt TLS certificates)
+- **Google OAuth credentials** (Client ID + Client Secret) from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Create an OAuth 2.0 Client ID with the authorized redirect URI set to `https://YOUR_DOMAIN/_ui/api/auth/google/callback`.
 
 ---
 
 ## Installation
 
-Choose one of the two installation methods below.
+Kiro Gateway runs exclusively via docker-compose with four services: PostgreSQL, Rust backend, nginx frontend (TLS termination), and certbot (certificate automation).
 
-### Option A: Build from source
+### Step 1: Clone the repository
 
-1. Clone the repository:
+```bash
+git clone https://github.com/if414013/rkgw.git
+cd rkgw
+```
 
-   ```bash
-   git clone https://github.com/if414013/rkgw.git
-   cd rkgw
-   ```
+### Step 2: Configure environment variables
 
-2. Build the web UI frontend (React + Vite):
+```bash
+cp .env.example .env
+```
 
-   ```bash
-   cd web-ui
-   npm install
-   npm run build
-   cd ..
-   ```
+Edit `.env` and fill in all values:
 
-   This produces the `web-ui/dist/` directory, which gets embedded into the Rust binary at compile time via `rust-embed`.
+```bash
+# Domain for TLS certificates (Let's Encrypt via certbot)
+DOMAIN=gateway.example.com
 
-3. Build the gateway in release mode:
+# Email for Let's Encrypt certificate notifications
+EMAIL=admin@example.com
 
-   ```bash
-   cargo build --release
-   ```
+# PostgreSQL password
+POSTGRES_PASSWORD=your_secure_password_here
 
-   The compiled binary will be at `target/release/kiro-gateway`.
+# Google SSO (required)
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_CALLBACK_URL=https://gateway.example.com/_ui/api/auth/google/callback
+```
 
-4. Set up PostgreSQL:
+### Step 3: Provision TLS certificates
 
-   Create a database for the gateway to store its configuration:
+Run the init script to obtain Let's Encrypt certificates for the first time:
 
-   ```bash
-   # Connect to PostgreSQL as a superuser
-   psql -U postgres
+```bash
+chmod +x init-certs.sh
+DOMAIN=gateway.example.com EMAIL=admin@example.com ./init-certs.sh
+```
 
-   # Create the database and user
-   CREATE USER kiro WITH PASSWORD 'your_secure_password';
-   CREATE DATABASE kiro_gateway OWNER kiro;
-   \q
-   ```
+This creates a temporary self-signed certificate, starts nginx, obtains a real Let's Encrypt certificate via the ACME webroot challenge, then reloads nginx with the real certificate.
 
-   The gateway automatically creates the required tables on first connection.
+### Step 4: Start all services
 
-5. Create a `.env` file (or export the variables):
+```bash
+docker compose up -d --build
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+The first build compiles the Rust backend and React frontend inside Docker, which takes a few minutes. Subsequent builds are much faster.
 
-   Edit `.env` and set at minimum:
+Watch the logs:
 
-   ```bash
-   # Required
-   DATABASE_URL=postgres://kiro:your_secure_password@localhost:5432/kiro_gateway
-   KIRO_REGION=us-east-1
-   ```
+```bash
+docker compose logs -f backend
+```
 
-   `PROXY_API_KEY` will be configured through the Web UI setup wizard on first launch.
+Wait until you see:
 
-6. Run the gateway:
+```
+Setup not complete — starting in setup-only mode
+Server listening on http://0.0.0.0:8000
+```
 
-   ```bash
-   cargo run --bin kiro-gateway --release
-   ```
-
-   Or run the compiled binary directly:
-
-   ```bash
-   ./target/release/kiro-gateway
-   ```
-
-   You should see output like:
-
-   ```
-   Kiro Gateway starting...
-   Connected to PostgreSQL database
-   Setup not complete — starting in setup-only mode
-   Visit the web UI to complete initial setup
-   TLS enabled (self-signed certificate)
-   Server listening on https://127.0.0.1:8000
-   ```
-
-### Option B: Docker Compose (recommended for servers)
-
-Docker Compose handles PostgreSQL, TLS, and the gateway in a single command.
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/if414013/rkgw.git
-   cd rkgw
-   ```
-
-2. Create your environment file:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` and set a strong `PROXY_API_KEY` and optionally change `KIRO_REGION`. Do **not** set `SERVER_HOST`, `DATABASE_URL`, `TLS_CERT`, or `TLS_KEY` in `.env` — these are managed by `docker-compose.yml`.
-
-   You can also set a custom PostgreSQL password:
-
-   ```bash
-   POSTGRES_PASSWORD=my_strong_db_password
-   ```
-
-   If omitted, it defaults to `kiro_secret`.
-
-3. Build and start:
-
-   ```bash
-   docker compose up -d --build
-   ```
-
-   The first build compiles the Rust binary and the React frontend inside Docker, which takes a few minutes. Subsequent builds are much faster thanks to Docker layer caching.
-
-4. Watch the logs:
-
-   ```bash
-   docker compose logs -f gateway
-   ```
-
-   Wait until you see:
-
-   ```
-   Setup not complete — starting in setup-only mode
-   Server listening on https://0.0.0.0:9001
-   ```
-
-   The Docker setup uses port **9001** by default (configurable via `SERVER_PORT` in `.env`).
-
-The `docker-compose.yml` starts two services:
-
-| Service | Image | Purpose |
-|:---|:---|:---|
-| `db` | `postgres:16-alpine` | PostgreSQL database for config persistence |
-| `gateway` | `kiro-gateway:latest` (built locally) | The Kiro Gateway proxy |
+The backend runs plain HTTP internally — nginx handles TLS termination on ports 443/80.
 
 ---
 
 ## First-Time Setup Wizard
 
-On first launch, the gateway starts in **setup-only mode**. API endpoints are disabled until you complete the setup through the Web UI.
+On first launch, the gateway starts in **setup-only mode**. The `/v1/*` proxy endpoints return 503 until you complete setup through the Web UI.
 
 ### Step 1: Open the Web UI
 
-Navigate to the gateway's Web UI in your browser:
+Navigate to `https://your-domain.com/_ui/` in your browser.
 
-- **From source (localhost):** `https://localhost:8000/_ui/`
-- **Docker:** `https://your-server:9001/_ui/`
+### Step 2: Sign in with Google
 
-Your browser will warn about the self-signed TLS certificate. This is expected — accept the warning to proceed.
+Click **Sign in with Google** to authenticate via Google SSO. The first user to sign in is automatically granted the **Admin** role.
 
-### Step 2: Complete the OAuth setup
+### Step 3: Add Kiro credentials
 
-The setup wizard guides you through authenticating with AWS SSO using the **OAuth device code flow**. This is the same mechanism used by the Kiro CLI.
+After signing in, you'll be prompted to add your Kiro (AWS) credentials. The setup wizard guides you through the OAuth device code flow to authenticate with AWS SSO and store a refresh token.
 
-You will need to provide:
+### Step 4: Create an API key
 
-1. **Gateway password** (`PROXY_API_KEY`) — Choose a strong password. This protects all API endpoints. Clients must include it as `Authorization: Bearer <password>` in every request.
+Navigate to the API Keys section in the Web UI and create a personal API key. This key is what you'll use in `Authorization: Bearer <key>` headers when making API calls.
 
-2. **AWS SSO Start URL** — Your organization's AWS SSO portal URL (e.g., `https://my-org.awsapps.com/start`). If you use an AWS Builder ID, you can use the default.
+### Step 5: Invite users (optional)
 
-3. **AWS Region** — The region where your Kiro/Q Developer endpoint lives. Defaults to `us-east-1`.
-
-The wizard will:
-- Register an OAuth client with AWS SSO OIDC
-- Display a device code and a verification URL
-- Ask you to open the verification URL in your browser and enter the code
-- Poll for authorization completion
-- Store the refresh token securely in PostgreSQL
-
-### Step 3: Verify setup completion
-
-Once the OAuth flow completes, the Web UI redirects to the dashboard. The gateway is now fully operational.
+As an admin, you can manage users and roles from the Web UI. Additional users sign in via Google SSO and can be granted Admin or User roles.
 
 ---
 
 ## Setup Flow Diagram
 
-The following diagram shows the complete setup and request flow:
-
 ```mermaid
 sequenceDiagram
     participant User as User / Browser
-    participant GW as Kiro Gateway
+    participant Nginx as nginx (TLS)
+    participant GW as Backend API
     participant DB as PostgreSQL
-    participant SSO as AWS SSO OIDC
+    participant Google as Google SSO
 
     Note over GW: First launch — setup mode
     GW->>DB: Connect & create tables
     DB-->>GW: Ready
 
-    User->>GW: Open /_ui/ (setup wizard)
-    GW-->>User: Setup form (password, region, SSO URL)
+    User->>Nginx: Open https://domain/_ui/
+    Nginx->>GW: Proxy request
+    GW-->>User: Login page
 
-    User->>GW: POST /api/oauth/start (device flow)
-    GW->>SSO: RegisterClient
-    SSO-->>GW: client_id, client_secret
-    GW->>SSO: StartDeviceAuthorization
-    SSO-->>GW: device_code, user_code, verification_uri
-    GW-->>User: Show user_code + verification URL
+    User->>Google: Sign in with Google (PKCE)
+    Google-->>GW: Authorization code
+    GW->>DB: Create admin user
+    GW-->>User: Session cookie — redirect to dashboard
 
-    User->>SSO: Open verification URL, enter code
-    SSO-->>User: Authorize
+    User->>GW: Add Kiro credentials (device code flow)
+    GW->>DB: Save refresh token
 
-    loop Poll every few seconds
-        GW->>SSO: CreateToken (device_code)
-        SSO-->>GW: authorization_pending / tokens
-    end
+    User->>GW: Create personal API key
+    GW->>DB: Save API key (SHA-256 hashed)
 
-    SSO-->>GW: access_token + refresh_token
-    GW->>DB: Save credentials (encrypted)
-    GW-->>User: Setup complete — redirect to dashboard
+    Note over GW: Setup complete — normal operation
 
-    Note over GW: Normal operation mode
-    User->>GW: POST /v1/chat/completions
-    GW->>GW: Validate Bearer token
+    User->>Nginx: POST /v1/chat/completions
+    Nginx->>GW: Proxy (plain HTTP)
+    GW->>GW: Validate API key → find user → get Kiro creds
     GW->>GW: Convert OpenAI → Kiro format
-    GW->>SSO: Refresh access token (if needed)
-    GW->>GW: POST to Kiro API
     GW-->>User: SSE stream (Kiro → OpenAI format)
 ```
 
@@ -308,8 +193,7 @@ Once setup is complete, verify that everything is working.
 ### Health check
 
 ```bash
-# Use -k to accept the self-signed certificate
-curl -k https://localhost:8000/health
+curl https://your-domain.com/health
 ```
 
 Expected response:
@@ -321,17 +205,15 @@ Expected response:
 ### List available models
 
 ```bash
-curl -k -H "Authorization: Bearer YOUR_PROXY_API_KEY" \
-  https://localhost:8000/v1/models
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  https://your-domain.com/v1/models
 ```
-
-This returns a JSON list of all models available through your Kiro account.
 
 ### Send a test chat request (OpenAI format)
 
 ```bash
-curl -k -X POST https://localhost:8000/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_PROXY_API_KEY" \
+curl -X POST https://your-domain.com/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "claude-sonnet-4",
@@ -342,13 +224,11 @@ curl -k -X POST https://localhost:8000/v1/chat/completions \
   }'
 ```
 
-You should see a streaming SSE response with the model's reply.
-
 ### Send a test chat request (Anthropic format)
 
 ```bash
-curl -k -X POST https://localhost:8000/v1/messages \
-  -H "x-api-key: YOUR_PROXY_API_KEY" \
+curl -X POST https://your-domain.com/v1/messages \
+  -H "x-api-key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -H "anthropic-version: 2023-06-01" \
   -d '{
@@ -363,28 +243,29 @@ curl -k -X POST https://localhost:8000/v1/messages \
 
 ### Check the Web UI dashboard
 
-Open `https://localhost:8000/_ui/` in your browser to see:
+Open `https://your-domain.com/_ui/` to see:
 
 - Real-time request metrics (latency, token counts)
-- System resource usage (CPU, memory)
+- System resource usage
 - Live log viewer
 - Configuration management
+- User and API key management
 
 ---
 
 ## Connecting AI Tools
 
-Once the gateway is running, point your favorite AI tools at it.
+Once the gateway is running, point your AI tools at it using your personal API key.
 
 ### Cursor / VS Code extensions
 
 Set the API base URL to your gateway:
 
 ```
-https://localhost:8000/v1
+https://your-domain.com/v1
 ```
 
-Use your `PROXY_API_KEY` as the API key.
+Use your personal API key as the API key.
 
 ### OpenAI Python SDK
 
@@ -392,10 +273,8 @@ Use your `PROXY_API_KEY` as the API key.
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://localhost:8000/v1",
-    api_key="YOUR_PROXY_API_KEY",
-    # For self-signed certs:
-    http_client=httpx.Client(verify=False),
+    base_url="https://your-domain.com/v1",
+    api_key="YOUR_API_KEY",
 )
 
 response = client.chat.completions.create(
@@ -411,8 +290,8 @@ print(response.choices[0].message.content)
 import anthropic
 
 client = anthropic.Anthropic(
-    base_url="https://localhost:8000",
-    api_key="YOUR_PROXY_API_KEY",
+    base_url="https://your-domain.com",
+    api_key="YOUR_API_KEY",
 )
 
 message = client.messages.create(
@@ -428,4 +307,5 @@ print(message.content[0].text)
 ## Next Steps
 
 - [Quickstart](quickstart.html) — Get running in under 5 minutes with Docker
-- [Configuration Reference](configuration.html) — Full list of environment variables, CLI arguments, and TLS options
+- [Configuration Reference](configuration.html) — Environment variables and runtime settings
+- [Deployment Guide](deployment.html) — Production deployment, backups, and monitoring

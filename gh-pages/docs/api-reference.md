@@ -21,47 +21,55 @@ Complete reference for all Kiro Gateway API endpoints. The gateway exposes OpenA
 
 ## Base URL
 
-All API endpoints are served over HTTPS. The default base URL is:
+All API endpoints are served over HTTPS via nginx. The base URL is:
 
 ```
-https://your-server:8000
+https://your-domain
 ```
 
-The port is configurable via the `SERVER_PORT` environment variable (default: `8000`). TLS is always enabled — the gateway generates a self-signed certificate automatically if no custom certificate is provided.
+Replace `your-domain` with the `DOMAIN` value configured in your `.env` file. Nginx handles TLS termination using Let's Encrypt certificates managed by certbot. The backend runs on plain HTTP internally and is not exposed directly.
 
 ---
 
 ## Authentication
 
-All `/v1/*` endpoints require authentication. The gateway supports two authentication methods:
+The gateway uses two separate authentication systems:
 
-### Bearer Token (OpenAI-style)
+### API Key Auth (for `/v1/*` proxy endpoints)
 
-```
-Authorization: Bearer YOUR_PROXY_API_KEY
-```
+Each user creates personal API keys through the web dashboard. Clients authenticate using either header format:
 
-### API Key Header (Anthropic-style)
+**Bearer Token (OpenAI-style):**
 
 ```
-x-api-key: YOUR_PROXY_API_KEY
+Authorization: Bearer YOUR_API_KEY
 ```
 
-The `PROXY_API_KEY` is the password you set during initial setup (via the Web UI wizard or environment variable). Both methods are accepted on all authenticated endpoints — use whichever matches your client library.
+**API Key Header (Anthropic-style):**
+
+```
+x-api-key: YOUR_API_KEY
+```
+
+API keys are created per-user via the web dashboard at `/_ui/`. When a request arrives, the gateway SHA-256 hashes the key, looks up the associated user in cache/DB, and uses that user's Kiro credentials to proxy the request.
+
+### Google SSO (for `/_ui/api/*` web UI endpoints)
+
+Web UI endpoints use Google SSO session authentication. After signing in via Google OAuth, a session cookie (`kgw_session`, 24-hour TTL) authenticates subsequent requests. Mutation endpoints additionally require a CSRF token. See the [Web Dashboard](web-ui.html) docs for details.
 
 ### Unauthenticated Endpoints
 
-The following endpoints do not require authentication:
-
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /` | Root health check (for load balancers) |
-| `GET /health` | Detailed health check |
-| `/_ui/*` | Web dashboard (setup and config-read routes are public) |
+| `GET /` | Root status check (for load balancers) |
+| `GET /health` | Health check |
+| `GET /_ui/api/status` | Gateway status |
+| `GET /_ui/api/auth/google` | Google SSO login |
+| `GET /_ui/api/auth/google/callback` | OAuth callback |
 
 ### Authentication Errors
 
-If authentication fails, the gateway returns:
+If API key authentication fails:
 
 ```json
 {
@@ -74,13 +82,28 @@ If authentication fails, the gateway returns:
 
 **HTTP Status:** `401 Unauthorized`
 
+### Setup-Only Mode
+
+On first run (no admin user in the database), the gateway blocks all `/v1/*` proxy endpoints with `503 Service Unavailable` and only serves the web UI for initial setup. Complete setup by signing in with Google at `/_ui/`.
+
+```json
+{
+  "error": {
+    "message": "Setup required. Please complete setup at /_ui/",
+    "type": "setup_required"
+  }
+}
+```
+
+**HTTP Status:** `503 Service Unavailable`
+
 ---
 
-## Endpoints
+## Proxy Endpoints
 
 ### POST /v1/chat/completions
 
-OpenAI-compatible chat completions endpoint. Supports both streaming and non-streaming responses.
+OpenAI-compatible chat completions endpoint. Supports both streaming and non-streaming responses. Requires API key authentication.
 
 #### Request Body
 
@@ -199,8 +222,8 @@ If `stream_options.include_usage` is `true` (the default), the final chunk befor
 **curl:**
 
 ```bash
-curl -k -X POST https://localhost:8000/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_PROXY_API_KEY" \
+curl -X POST https://your-domain/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "claude-sonnet-4-20250514",
@@ -215,8 +238,8 @@ curl -k -X POST https://localhost:8000/v1/chat/completions \
 **curl (streaming):**
 
 ```bash
-curl -k -X POST https://localhost:8000/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_PROXY_API_KEY" \
+curl -X POST https://your-domain/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "claude-sonnet-4-20250514",
@@ -233,10 +256,8 @@ curl -k -X POST https://localhost:8000/v1/chat/completions \
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://localhost:8000/v1",
-    api_key="YOUR_PROXY_API_KEY",
-    # For self-signed certs:
-    http_client=__import__("httpx").Client(verify=False),
+    base_url="https://your-domain/v1",
+    api_key="YOUR_API_KEY",
 )
 
 # Non-streaming
@@ -267,10 +288,8 @@ for chunk in stream:
 import OpenAI from "openai";
 
 const client = new OpenAI({
-  baseURL: "https://localhost:8000/v1",
-  apiKey: "YOUR_PROXY_API_KEY",
-  // For self-signed certs in Node.js:
-  // Set NODE_TLS_REJECT_UNAUTHORIZED=0 in env
+  baseURL: "https://your-domain/v1",
+  apiKey: "YOUR_API_KEY",
 });
 
 // Non-streaming
@@ -299,13 +318,13 @@ for await (const chunk of stream) {
 
 ### POST /v1/messages
 
-Anthropic-compatible messages endpoint. Supports both streaming and non-streaming responses.
+Anthropic-compatible messages endpoint. Supports both streaming and non-streaming responses. Requires API key authentication.
 
 #### Request Headers
 
 | Header | Required | Description |
 |--------|----------|-------------|
-| `x-api-key` or `Authorization: Bearer` | Yes | Your proxy API key. |
+| `x-api-key` or `Authorization: Bearer` | Yes | Your per-user API key. |
 | `anthropic-version` | No | API version string (e.g. `2023-06-01`). Accepted for compatibility logging but not enforced. |
 | `Content-Type` | Yes | Must be `application/json`. |
 
@@ -406,8 +425,8 @@ Thinking blocks appear as separate content blocks with `type: "thinking"` and de
 **curl:**
 
 ```bash
-curl -k -X POST https://localhost:8000/v1/messages \
-  -H "x-api-key: YOUR_PROXY_API_KEY" \
+curl -X POST https://your-domain/v1/messages \
+  -H "x-api-key: YOUR_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{
@@ -419,33 +438,14 @@ curl -k -X POST https://localhost:8000/v1/messages \
   }'
 ```
 
-**curl (streaming):**
-
-```bash
-curl -k -X POST https://localhost:8000/v1/messages \
-  -H "x-api-key: YOUR_PROXY_API_KEY" \
-  -H "anthropic-version: 2023-06-01" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-sonnet-4-20250514",
-    "max_tokens": 1024,
-    "stream": true,
-    "messages": [
-      {"role": "user", "content": "Write a haiku about programming."}
-    ]
-  }'
-```
-
 **Python (anthropic library):**
 
 ```python
 import anthropic
 
 client = anthropic.Anthropic(
-    base_url="https://localhost:8000",
-    api_key="YOUR_PROXY_API_KEY",
-    # For self-signed certs:
-    http_client=__import__("httpx").Client(verify=False),
+    base_url="https://your-domain",
+    api_key="YOUR_API_KEY",
 )
 
 # Non-streaming
@@ -474,8 +474,8 @@ with client.messages.stream(
 import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({
-  baseURL: "https://localhost:8000",
-  apiKey: "YOUR_PROXY_API_KEY",
+  baseURL: "https://your-domain",
+  apiKey: "YOUR_API_KEY",
 });
 
 // Non-streaming
@@ -505,7 +505,7 @@ for await (const event of stream) {
 
 ### GET /v1/models
 
-List all available models. Returns models in OpenAI-compatible format.
+List all available models. Returns models in OpenAI-compatible format. Requires API key authentication.
 
 #### Response
 
@@ -536,8 +536,8 @@ List all available models. Returns models in OpenAI-compatible format.
 **curl:**
 
 ```bash
-curl -k -H "Authorization: Bearer YOUR_PROXY_API_KEY" \
-  https://localhost:8000/v1/models
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  https://your-domain/v1/models
 ```
 
 **Python:**
@@ -546,9 +546,8 @@ curl -k -H "Authorization: Bearer YOUR_PROXY_API_KEY" \
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://localhost:8000/v1",
-    api_key="YOUR_PROXY_API_KEY",
-    http_client=__import__("httpx").Client(verify=False),
+    base_url="https://your-domain/v1",
+    api_key="YOUR_API_KEY",
 )
 
 models = client.models.list()
@@ -556,27 +555,13 @@ for model in models.data:
     print(f"{model.id} (owned by {model.owned_by})")
 ```
 
-**Node.js:**
-
-```javascript
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  baseURL: "https://localhost:8000/v1",
-  apiKey: "YOUR_PROXY_API_KEY",
-});
-
-const models = await client.models.list();
-for (const model of models.data) {
-  console.log(`${model.id} (owned by ${model.owned_by})`);
-}
-```
-
 ---
+
+## Infrastructure Endpoints
 
 ### GET /health
 
-Detailed health check endpoint. Does not require authentication — designed for load balancers and monitoring systems.
+Health check endpoint. Does not require authentication — designed for load balancers and monitoring systems.
 
 #### Response
 
@@ -591,12 +576,12 @@ Detailed health check endpoint. Does not require authentication — designed for
 #### Example
 
 ```bash
-curl -k https://localhost:8000/health
+curl https://your-domain/health
 ```
 
 ### GET /
 
-Root endpoint. Returns a simple status check.
+Root endpoint. Returns a simple status check. No authentication required.
 
 #### Response
 
@@ -607,6 +592,51 @@ Root endpoint. Returns a simple status check.
   "version": "1.0.8"
 }
 ```
+
+---
+
+## Web UI API Endpoints
+
+All web UI API endpoints are under `/_ui/api/`. See the [Web Dashboard](web-ui.html) documentation for full details.
+
+### Public (No Authentication)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/_ui/api/status` | Gateway status and setup state |
+| `GET` | `/_ui/api/auth/google` | Initiate Google SSO |
+| `GET` | `/_ui/api/auth/google/callback` | OAuth callback |
+
+### Session-Authenticated (requires `kgw_session` cookie)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/_ui/api/auth/me` | Current user info |
+| `GET` | `/_ui/api/metrics` | Metrics snapshot |
+| `GET` | `/_ui/api/system` | System info |
+| `GET` | `/_ui/api/models` | Available models |
+| `GET` | `/_ui/api/logs` | Log buffer |
+| `GET` | `/_ui/api/config` | Current config |
+| `GET` | `/_ui/api/config/schema` | Config schema |
+| `GET` | `/_ui/api/config/history` | Config change history |
+| `GET` | `/_ui/api/stream/metrics` | SSE metrics stream |
+| `GET` | `/_ui/api/stream/logs` | SSE log stream |
+
+### Mutations (Session + CSRF Token)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/_ui/api/auth/logout` | End session |
+| `*` | `/_ui/api/kiro/*` | Kiro token management |
+| `*` | `/_ui/api/keys/*` | API key management |
+
+### Admin-Only (Session + CSRF + Admin Role)
+
+| Method | Path | Description |
+|---|---|---|
+| `PUT` | `/_ui/api/config` | Update configuration |
+| `*` | `/_ui/api/domains/*` | Domain allowlist |
+| `*` | `/_ui/api/users/*` | User management |
 
 ---
 
@@ -636,30 +666,6 @@ All errors follow a consistent JSON format:
 | `503` | `setup_required` | Initial setup has not been completed. Visit `/_ui/` to configure the gateway. |
 | Various | `kiro_api_error` | Upstream Kiro API returned an error. The HTTP status is forwarded from the upstream response. |
 
-### Validation Error Examples
-
-**Empty messages array:**
-
-```json
-{
-  "error": {
-    "message": "messages cannot be empty",
-    "type": "validation_error"
-  }
-}
-```
-
-**Invalid max_tokens (Anthropic endpoint):**
-
-```json
-{
-  "error": {
-    "message": "max_tokens must be positive",
-    "type": "validation_error"
-  }
-}
-```
-
 ---
 
 ## Model Name Resolution
@@ -687,16 +693,6 @@ Access-Control-Allow-Headers: *
 ```
 
 OPTIONS preflight requests are handled automatically.
-
----
-
-## HSTS
-
-All responses include the `Strict-Transport-Security` header since TLS is always enabled:
-
-```
-Strict-Transport-Security: max-age=31536000
-```
 
 ---
 
