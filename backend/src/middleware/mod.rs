@@ -54,21 +54,12 @@ pub async fn auth_middleware(
     })?;
 
     // Proxy-only mode: compare raw key against PROXY_API_KEY, use global auth
-    let is_proxy_only = state
-        .config
-        .read()
-        .unwrap_or_else(|p| p.into_inner())
-        .is_proxy_only();
+    let (is_proxy_only, expected_key) = {
+        let cfg = state.config.read().unwrap_or_else(|p| p.into_inner());
+        (cfg.is_proxy_only(), cfg.proxy_api_key.clone().unwrap_or_default())
+    };
 
     if is_proxy_only {
-        let expected_key = state
-            .config
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .proxy_api_key
-            .clone()
-            .unwrap_or_default();
-
         // Constant-time comparison
         use subtle::ConstantTimeEq;
         let keys_match = raw_key.as_bytes().ct_eq(expected_key.as_bytes());

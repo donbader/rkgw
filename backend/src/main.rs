@@ -140,13 +140,7 @@ async fn main() -> Result<()> {
     // Load models from Kiro API at startup (proxy-only or setup complete)
     if setup_complete_flag {
         tracing::info!("Loading models from Kiro API...");
-        // For proxy-only, wrap the env-bootstrapped auth manager temporarily
-        let auth_for_models = if is_proxy_only {
-            Arc::new(auth::AuthManager::new_from_env(&config)?)
-        } else {
-            init_auth_from_config_db(&config, &config_db).await?
-        };
-        match load_models_from_kiro(&http_client, &auth_for_models, &config).await {
+        match load_models_from_kiro(&http_client, &app_auth_manager, &config).await {
             Ok(models) => {
                 tracing::info!("Models from Kiro API:");
                 for model in &models {
@@ -509,10 +503,12 @@ fn print_startup_banner(config: &config::Config) {
         },
         config.fake_reasoning_max_tokens
     );
-    println!(
-        "  Web UI:      http://{}:{}/_ui/",
-        config.server_host, config.server_port
-    );
+    if !config.is_proxy_only() {
+        println!(
+            "  Web UI:      http://{}:{}/_ui/",
+            config.server_host, config.server_port
+        );
+    }
     println!();
 }
 

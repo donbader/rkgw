@@ -90,9 +90,7 @@ On first boot, the container runs a device code flow — check the logs for a UR
 ╚═══════════════════════════════════════════════════════════╝
 ```
 
-Once authorized, the gateway starts and listens on port 8000:
-
-That's it. The gateway listens on port 8000 and authenticates requests with `PROXY_API_KEY`:
+That's it — the gateway starts on port 8000 and authenticates requests with `PROXY_API_KEY`:
 
 ```bash
 curl http://localhost:8000/v1/chat/completions \
@@ -210,8 +208,6 @@ For proxy-only mode (`docker-compose.gateway.yml`):
 | `DEBUG_MODE`      | No       | `off`         | `off`, `errors`, `all`                    |
 
 ### Full Deployment Environment Variables
-
-### Environment Variables
 
 Set in `.env` (see `.env.example`):
 
