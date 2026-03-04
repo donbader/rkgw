@@ -40,9 +40,13 @@ async fn main() -> Result<()> {
     {
         use tracing_subscriber::prelude::*;
         let capture_layer = log_capture::LogCaptureLayer::new(Arc::clone(&log_buffer));
+        let fmt_layer = tracing_subscriber::fmt::layer()
+            .with_target(false)
+            .with_thread_ids(false);
         tracing_subscriber::registry()
             .with(env_filter)
             .with(capture_layer)
+            .with(fmt_layer)
             .init();
     }
 
