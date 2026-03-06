@@ -26,13 +26,15 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
 
   if (!res.ok) {
-    let body: { error?: string; message?: string } | undefined
+    let body: { error?: string | { message?: string; type?: string }; message?: string } | undefined
     try { body = await res.json() } catch { /* not JSON */ }
-    throw new ApiResponseError(
-      res.status,
-      body?.message || body?.error || `HTTP ${res.status}`,
-      body?.error,
-    )
+    const errObj = body?.error
+    const msg = body?.message
+      || (typeof errObj === 'object' && errObj?.message)
+      || (typeof errObj === 'string' && errObj)
+      || `HTTP ${res.status}`
+    const code = typeof errObj === 'object' ? errObj?.type : typeof errObj === 'string' ? errObj : undefined
+    throw new ApiResponseError(res.status, msg, code)
   }
 
   if (res.status === 204) return undefined as T
@@ -67,13 +69,15 @@ export async function apiDelete(path: string): Promise<void> {
     throw new ApiResponseError(401, 'Session expired')
   }
   if (!res.ok) {
-    let body: { error?: string; message?: string } | undefined
+    let body: { error?: string | { message?: string; type?: string }; message?: string } | undefined
     try { body = await res.json() } catch { /* not JSON */ }
-    throw new ApiResponseError(
-      res.status,
-      body?.message || body?.error || `HTTP ${res.status}`,
-      body?.error,
-    )
+    const errObj = body?.error
+    const msg = body?.message
+      || (typeof errObj === 'object' && errObj?.message)
+      || (typeof errObj === 'string' && errObj)
+      || `HTTP ${res.status}`
+    const code = typeof errObj === 'object' ? errObj?.type : typeof errObj === 'string' ? errObj : undefined
+    throw new ApiResponseError(res.status, msg, code)
   }
 }
 
@@ -88,8 +92,8 @@ export async function checkSetupStatus(): Promise<boolean> {
   }
 }
 
-export async function pollDeviceCode(deviceCodeId: string): Promise<DevicePollResponse> {
-  return apiPost<DevicePollResponse>('/kiro/poll', { device_code_id: deviceCodeId })
+export async function pollDeviceCode(deviceCode: string): Promise<DevicePollResponse> {
+  return apiPost<DevicePollResponse>('/kiro/poll', { device_code: deviceCode })
 }
 
 // --- Types ---
@@ -128,11 +132,11 @@ export interface DeviceCodeResponse {
   user_code: string
   verification_uri: string
   verification_uri_complete: string
-  device_code_id: string
+  device_code: string
 }
 
 export interface DevicePollResponse {
-  status: 'pending' | 'slow_down' | 'complete'
+  status: 'pending' | 'slow_down' | 'success'
 }
 
 export interface DomainInfo {

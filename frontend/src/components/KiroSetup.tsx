@@ -10,9 +10,6 @@ export function KiroSetup() {
   const [loading, setLoading] = useState(true)
   const [deviceAuth, setDeviceAuth] = useState<DeviceCodeResponse | null>(null)
   const [starting, setStarting] = useState(false)
-  const [showConfig, setShowConfig] = useState(false)
-  const [startUrl, setStartUrl] = useState('')
-  const [region, setRegion] = useState('us-east-1')
 
   function loadStatus() {
     apiFetch<KiroStatus>('/kiro/status')
@@ -25,20 +22,11 @@ export function KiroSetup() {
   async function handleStart() {
     setStarting(true)
     try {
-      const body: { start_url?: string; region?: string } = {}
-      if (startUrl) body.start_url = startUrl
-      if (region) body.region = region
-      const result = await apiPost<DeviceCodeResponse>('/kiro/setup', body)
+      const result = await apiPost<DeviceCodeResponse>('/kiro/setup')
       setDeviceAuth(result)
-      setShowConfig(false)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
-      if (msg.includes('Start URL')) {
-        setShowConfig(true)
-        showToast('Please provide your AWS SSO Start URL', 'error')
-      } else {
-        showToast('Failed to start Kiro setup: ' + msg, 'error')
-      }
+      showToast('Failed to start Kiro setup: ' + msg, 'error')
     } finally {
       setStarting(false)
     }
@@ -82,7 +70,7 @@ export function KiroSetup() {
           userCode={deviceAuth.user_code}
           verificationUri={deviceAuth.verification_uri}
           verificationUriComplete={deviceAuth.verification_uri_complete}
-          deviceCodeId={deviceAuth.device_code_id}
+          deviceCode={deviceAuth.device_code}
           onComplete={handleComplete}
           onError={handleError}
           onCancel={() => setDeviceAuth(null)}
@@ -105,49 +93,12 @@ export function KiroSetup() {
           <span className="tag-err">NOT CONNECTED</span>
         )}
       </div>
-      {showConfig && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            AWS SSO Start URL
-            <input
-              type="text"
-              className="input"
-              value={startUrl}
-              onChange={e => setStartUrl(e.target.value)}
-              placeholder="https://d-xxxxxxxxxx.awsapps.com/start"
-              style={{ marginTop: 4, width: '100%' }}
-            />
-          </label>
-          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-            Region
-            <input
-              type="text"
-              className="input"
-              value={region}
-              onChange={e => setRegion(e.target.value)}
-              placeholder="us-east-1"
-              style={{ marginTop: 4, width: '100%' }}
-            />
-          </label>
-        </div>
-      )}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        {!showConfig && !status?.has_token && (
-          <button
-            className="device-code-cancel"
-            type="button"
-            onClick={() => setShowConfig(true)}
-            style={{ flex: 'none' }}
-          >
-            configure
-          </button>
-        )}
+      <div className="kiro-actions">
         <button
           className="btn-save"
           type="button"
           onClick={handleStart}
           disabled={starting}
-          style={{ flex: 'none' }}
         >
           {status?.has_token ? '$ reconnect' : '$ setup kiro token'}
         </button>

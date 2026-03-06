@@ -32,7 +32,9 @@ pub fn classify_config_change(key: &str) -> ChangeType {
         | "mcp_tool_execution_timeout"
         | "mcp_health_check_interval"
         | "mcp_tool_sync_interval"
-        | "mcp_max_consecutive_failures" => ChangeType::HotReload,
+        | "mcp_max_consecutive_failures"
+        | "oauth_start_url"
+        | "oauth_sso_region" => ChangeType::HotReload,
         "server_host"
         | "server_port"
         | "streaming_timeout"
@@ -191,6 +193,12 @@ pub fn validate_config_field(key: &str, value: &serde_json::Value) -> Result<(),
             if n > 10 {
                 return Err("http_max_retries must be between 0 and 10".to_string());
             }
+            Ok(())
+        }
+        "oauth_start_url" | "oauth_sso_region" | "tls_cert_path" | "tls_key_path" => {
+            value
+                .as_str()
+                .ok_or_else(|| format!("{} must be a string", key))?;
             Ok(())
         }
         _ => Err(format!("Unknown config field: '{}'", key)),

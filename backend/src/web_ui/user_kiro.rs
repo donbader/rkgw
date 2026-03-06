@@ -32,15 +32,6 @@ struct KiroSetupResponse {
     interval: u64,
 }
 
-/// Request for POST /kiro/setup
-#[derive(Deserialize, Default)]
-struct KiroSetupRequest {
-    #[serde(default)]
-    start_url: Option<String>,
-    #[serde(default)]
-    region: Option<String>,
-}
-
 /// Request for POST /kiro/poll
 #[derive(Deserialize)]
 struct KiroPollRequest {
@@ -94,109 +85,79 @@ async fn kiro_status(
 /// POST /_ui/api/kiro/setup — start device code flow for authenticated user
 async fn kiro_setup(
     State(state): State<AppState>,
-    Extension(_session): Extension<SessionInfo>,
-    body: Option<Json<KiroSetupRequest>>,
+    Extension(session): Extension<SessionInfo>,
 ) -> Result<Json<KiroSetupResponse>, ApiError> {
-    let body = body.map(|b| b.0).unwrap_or_default();
-
+    let user_id = session.user_id;
     let config_db = state
         .config_db
         .as_ref()
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not configured")))?;
 
-    // Load OAuth client credentials from config DB
-    let client_id = config_db
-        .get("oauth_client_id")
+    // Read SSO config from global config
+    let sso_region = config_db
+        .get("oauth_sso_region")
         .await
-        .map_err(ApiError::Internal)?;
-    let client_secret = config_db
-        .get("oauth_client_secret")
-        .await
-        .map_err(ApiError::Internal)?;
-    // Request body overrides DB values for region and start_url
-    let sso_region = body
-        .region
-        .or(config_db
-            .get("oauth_sso_region")
-            .await
-            .map_err(ApiError::Internal)?)
+        .map_err(ApiError::Internal)?
         .unwrap_or_else(|| "us-east-1".to_string());
-    let start_url = body
-        .start_url
-        .or(config_db
-            .get("oauth_start_url")
-            .await
-            .map_err(ApiError::Internal)?)
+    let start_url = config_db
+        .get("oauth_start_url")
+        .await
+        .map_err(ApiError::Internal)?
         .unwrap_or_default();
+
+    // Normalize: strip fragment (#...) and trailing slashes
+    let start_url = start_url
+        .split('#')
+        .next()
+        .unwrap_or(&start_url)
+        .trim_end_matches('/')
+        .to_string();
 
     if start_url.is_empty() {
         return Err(ApiError::ValidationError(
-            "start_url is required (your AWS IAM Identity Center start URL, e.g. https://d-xxxxxxxxxx.awsapps.com/start)".into(),
+            "oauth_start_url not configured. Set it in the admin config page (e.g. https://d-xxxxxxxxxx.awsapps.com/start)".into(),
         ));
     }
 
+    // Clear any stale per-user OAuth client creds before fresh registration
+    config_db
+        .clear_user_oauth_client(user_id)
+        .await
+        .map_err(ApiError::Internal)?;
+
     let http_client = reqwest::Client::new();
 
-    let (client_id, client_secret) = match (client_id, client_secret) {
-        (Some(id), Some(secret)) => (id, secret),
-        _ => {
-            // Auto-register OAuth client with AWS SSO OIDC
-            tracing::info!("OAuth client not configured, registering with AWS SSO OIDC");
-            let start_url_opt = if start_url.is_empty() {
-                None
-            } else {
-                Some(start_url.as_str())
-            };
-            let registration =
-                oauth::register_client(&http_client, &sso_region, "device", None, start_url_opt)
-                    .await
-                    .map_err(ApiError::Internal)?;
+    // Always register a fresh OAuth client per user
+    tracing::info!(user_id = %user_id, "Registering fresh OAuth client for user");
+    let start_url_opt = Some(start_url.as_str());
+    let registration =
+        oauth::register_client(&http_client, &sso_region, "device", None, start_url_opt)
+            .await
+            .map_err(ApiError::Internal)?;
 
-            // Persist credentials for future use
-            config_db
-                .set("oauth_client_id", &registration.client_id, "kiro_setup")
-                .await
-                .map_err(ApiError::Internal)?;
-            config_db
-                .set(
-                    "oauth_client_secret",
-                    &registration.client_secret,
-                    "kiro_setup",
-                )
-                .await
-                .map_err(ApiError::Internal)?;
-            config_db
-                .set(
-                    "oauth_client_secret_expires_at",
-                    &registration.client_secret_expires_at.to_string(),
-                    "kiro_setup",
-                )
-                .await
-                .map_err(ApiError::Internal)?;
-            config_db
-                .set("oauth_sso_region", &sso_region, "kiro_setup")
-                .await
-                .map_err(ApiError::Internal)?;
-            config_db
-                .set("oauth_start_url", &start_url, "kiro_setup")
-                .await
-                .map_err(ApiError::Internal)?;
+    // Store per-user OAuth client credentials
+    config_db
+        .upsert_user_oauth_client(
+            user_id,
+            &registration.client_id,
+            &registration.client_secret,
+            &sso_region,
+        )
+        .await
+        .map_err(ApiError::Internal)?;
 
-            tracing::info!(
-                client_id = %registration.client_id,
-                region = %sso_region,
-                "OAuth client registered successfully"
-            );
-
-            (registration.client_id, registration.client_secret)
-        }
-    };
+    tracing::info!(
+        user_id = %user_id,
+        client_id = %registration.client_id,
+        region = %sso_region,
+        "Per-user OAuth client registered"
+    );
 
     let device_auth = oauth::start_device_authorization(
         &http_client,
         &sso_region,
-        &client_id,
-        &client_secret,
+        &registration.client_id,
+        &registration.client_secret,
         &start_url,
     )
     .await
@@ -224,29 +185,16 @@ async fn kiro_poll(
         .as_ref()
         .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Database not configured")))?;
 
-    // Load OAuth client credentials
-    let client_id = config_db
-        .get("oauth_client_id")
-        .await
-        .map_err(ApiError::Internal)?;
-    let client_secret = config_db
-        .get("oauth_client_secret")
-        .await
-        .map_err(ApiError::Internal)?;
-    let sso_region = config_db
-        .get("oauth_sso_region")
+    // Load per-user OAuth client credentials
+    let (client_id, client_secret, sso_region) = config_db
+        .get_user_oauth_client(user_id)
         .await
         .map_err(ApiError::Internal)?
-        .unwrap_or_else(|| "us-east-1".to_string());
-
-    let (client_id, client_secret) = match (client_id, client_secret) {
-        (Some(id), Some(secret)) => (id, secret),
-        _ => {
-            return Err(ApiError::ValidationError(
-                "OAuth client not configured".to_string(),
-            ));
-        }
-    };
+        .ok_or_else(|| {
+            ApiError::ValidationError(
+                "OAuth client not configured for this user. Run setup first.".to_string(),
+            )
+        })?;
 
     let http_client = reqwest::Client::new();
     let poll_result = oauth::poll_device_token(
@@ -336,7 +284,7 @@ pub fn spawn_token_refresh_task(config_db: Arc<ConfigDb>) {
         loop {
             interval.tick().await;
 
-            let expiring = match config_db.get_expiring_kiro_tokens().await {
+            let expiring = match config_db.get_expiring_kiro_tokens_with_oauth().await {
                 Ok(tokens) => tokens,
                 Err(e) => {
                     tracing::error!(error = ?e, "Failed to query expiring Kiro tokens");
@@ -350,30 +298,42 @@ pub fn spawn_token_refresh_task(config_db: Arc<ConfigDb>) {
 
             tracing::debug!(count = expiring.len(), "Refreshing expiring Kiro tokens");
 
-            // Load OAuth client credentials once for the batch
-            let client_id = config_db.get("oauth_client_id").await.ok().flatten();
-            let client_secret = config_db.get("oauth_client_secret").await.ok().flatten();
-            let sso_region = config_db
+            // Fallback: load global OAuth creds for users without per-user creds
+            let global_client_id = config_db.get("oauth_client_id").await.ok().flatten();
+            let global_client_secret = config_db.get("oauth_client_secret").await.ok().flatten();
+            let global_sso_region = config_db
                 .get("oauth_sso_region")
                 .await
                 .ok()
                 .flatten()
                 .unwrap_or_else(|| "us-east-1".to_string());
 
-            let (client_id, client_secret) = match (client_id, client_secret) {
-                (Some(id), Some(secret)) => (id, secret),
-                _ => {
-                    tracing::warn!("Cannot refresh Kiro tokens: OAuth client not configured");
-                    continue;
-                }
-            };
+            for (user_id, refresh_token, oauth_cid, oauth_csec, oauth_region) in &expiring {
+                // Prefer per-user OAuth creds, fall back to global
+                let (client_id, client_secret, sso_region) =
+                    match (oauth_cid, oauth_csec, oauth_region) {
+                        (Some(cid), Some(csec), Some(region)) => {
+                            (cid.as_str(), csec.as_str(), region.as_str())
+                        }
+                        _ => match (&global_client_id, &global_client_secret) {
+                            (Some(cid), Some(csec)) => {
+                                (cid.as_str(), csec.as_str(), global_sso_region.as_str())
+                            }
+                            _ => {
+                                tracing::warn!(
+                                    user_id = %user_id,
+                                    "Cannot refresh token: no OAuth client credentials"
+                                );
+                                continue;
+                            }
+                        },
+                    };
 
-            for (user_id, refresh_token) in &expiring {
                 let result = refresh_user_token(
                     &http_client,
-                    &sso_region,
-                    &client_id,
-                    &client_secret,
+                    sso_region,
+                    client_id,
+                    client_secret,
                     refresh_token,
                 )
                 .await;

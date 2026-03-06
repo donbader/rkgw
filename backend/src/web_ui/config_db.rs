@@ -122,6 +122,17 @@ impl ConfigDb {
             self.migrate_to_v5().await?;
         }
 
+        // Re-read max version after v5 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 6 {
+            self.migrate_to_v6().await?;
+        }
+
         Ok(())
     }
 
@@ -330,6 +341,45 @@ impl ConfigDb {
         tx.commit().await.context("Failed to commit v5 migration")?;
 
         tracing::info!("Database migration to version 5 complete");
+        Ok(())
+    }
+
+    /// Version 6 migration: per-user OAuth client credentials on user_kiro_tokens.
+    async fn migrate_to_v6(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 6 (per-user OAuth creds)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v6 migration transaction")?;
+
+        sqlx::query("ALTER TABLE user_kiro_tokens ADD COLUMN IF NOT EXISTS oauth_client_id TEXT")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to add oauth_client_id column")?;
+
+        sqlx::query(
+            "ALTER TABLE user_kiro_tokens ADD COLUMN IF NOT EXISTS oauth_client_secret TEXT",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to add oauth_client_secret column")?;
+
+        sqlx::query("ALTER TABLE user_kiro_tokens ADD COLUMN IF NOT EXISTS oauth_sso_region TEXT")
+            .execute(&mut *tx)
+            .await
+            .context("Failed to add oauth_sso_region column")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(6_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 6")?;
+
+        tx.commit().await.context("Failed to commit v6 migration")?;
+
+        tracing::info!("Database migration to version 6 complete");
         Ok(())
     }
 
@@ -1196,6 +1246,93 @@ impl ConfigDb {
         .context("Failed to mark Kiro token as expired")?;
 
         Ok(())
+    }
+
+    /// Store per-user OAuth client credentials.
+    #[allow(dead_code)]
+    pub async fn upsert_user_oauth_client(
+        &self,
+        user_id: Uuid,
+        client_id: &str,
+        client_secret: &str,
+        sso_region: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO user_kiro_tokens (user_id, refresh_token, oauth_client_id, oauth_client_secret, oauth_sso_region, updated_at)
+             VALUES ($1, '', $2, $3, $4, NOW())
+             ON CONFLICT (user_id) DO UPDATE SET
+               oauth_client_id = EXCLUDED.oauth_client_id,
+               oauth_client_secret = EXCLUDED.oauth_client_secret,
+               oauth_sso_region = EXCLUDED.oauth_sso_region,
+               updated_at = NOW()",
+        )
+        .bind(user_id)
+        .bind(client_id)
+        .bind(client_secret)
+        .bind(sso_region)
+        .execute(&self.pool)
+        .await
+        .context("Failed to upsert user OAuth client")?;
+
+        Ok(())
+    }
+
+    /// Get per-user OAuth client credentials.
+    #[allow(dead_code)]
+    pub async fn get_user_oauth_client(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<(String, String, String)>> {
+        let row: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT oauth_client_id, oauth_client_secret, oauth_sso_region
+             FROM user_kiro_tokens WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to get user OAuth client")?;
+
+        Ok(row.and_then(|(id, secret, region)| {
+            match (id, secret, region) {
+                (Some(id), Some(secret), Some(region)) => Some((id, secret, region)),
+                _ => None,
+            }
+        }))
+    }
+
+    /// Clear per-user OAuth client credentials (before fresh registration).
+    #[allow(dead_code)]
+    pub async fn clear_user_oauth_client(&self, user_id: Uuid) -> Result<()> {
+        sqlx::query(
+            "UPDATE user_kiro_tokens SET
+               oauth_client_id = NULL, oauth_client_secret = NULL, oauth_sso_region = NULL,
+               updated_at = NOW()
+             WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to clear user OAuth client")?;
+
+        Ok(())
+    }
+
+    /// Get expiring tokens with per-user OAuth credentials for refresh.
+    #[allow(dead_code)]
+    pub async fn get_expiring_kiro_tokens_with_oauth(
+        &self,
+    ) -> Result<Vec<(Uuid, String, Option<String>, Option<String>, Option<String>)>> {
+        let rows: Vec<(Uuid, String, Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as(
+                "SELECT user_id, refresh_token, oauth_client_id, oauth_client_secret, oauth_sso_region
+                 FROM user_kiro_tokens
+                 WHERE token_expiry IS NOT NULL AND token_expiry < NOW() + INTERVAL '5 minutes'",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .context("Failed to get expiring Kiro tokens with OAuth")?;
+
+        Ok(rows)
     }
 
     // ── Domain Allowlist ──────────────────────────────────────────

@@ -10,7 +10,6 @@ function formatUptime(seconds: number): string {
 }
 
 export function Layout() {
-  const [connected, setConnected] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [uptime, setUptime] = useState(0)
   const location = useLocation()
@@ -44,7 +43,6 @@ export function Layout() {
         <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
       )}
       <Sidebar
-        connected={connected}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -60,11 +58,10 @@ export function Layout() {
         <div className="top-bar-info">
           <span>up {formatUptime(uptime)}</span>
           <span>v1.0.8</span>
-          <span className={connected ? 'tag-ok' : 'tag-err'}>{connected ? 'STREAM' : 'STREAM'}</span>
         </div>
       </header>
       <main className="main" id="main-content">
-        <Outlet context={{ connected, setConnected }} />
+        <Outlet />
       </main>
     </div>
   )

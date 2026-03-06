@@ -1408,3 +1408,35 @@ select.config-input {
 @media (max-width: 900px) {
   .mcp-detail-grid { grid-template-columns: 1fr; }
 }
+
+/* ---- Kiro Setup ---- */
+
+.kiro-config-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.kiro-config-label {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kiro-config-input {
+  max-width: 100%;
+}
+
+.kiro-config-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.kiro-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

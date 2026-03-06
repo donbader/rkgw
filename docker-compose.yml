@@ -21,11 +21,13 @@ services:
       dockerfile: Dockerfile
     image: kiro-gateway-backend:latest
     restart: on-failure:5
+    ports:
+      - "9999:9999"
     env_file:
       - .env
     environment:
       SERVER_HOST: "0.0.0.0"
-      SERVER_PORT: "8000"
+      SERVER_PORT: "9999"
       DATABASE_URL: postgres://kiro:${POSTGRES_PASSWORD:-kiro_secret}@db:5432/kiro_gateway
     labels:
       com.datadoghq.ad.logs: '[{"source": "rust", "service": "rkgw-backend"}]'
@@ -35,7 +37,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fs", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-fs", "http://localhost:9999/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -47,6 +49,8 @@ services:
       dockerfile: Dockerfile
     image: kiro-gateway-frontend:latest
     restart: unless-stopped
+    ports:
+      - "5173:5173"
     environment:
       VITE_DD_CLIENT_TOKEN: ${VITE_DD_CLIENT_TOKEN:-}
       VITE_DD_APPLICATION_ID: ${VITE_DD_APPLICATION_ID:-}
@@ -60,54 +64,26 @@ services:
       backend:
         condition: service_healthy
 
-  nginx:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
-    image: kiro-gateway-nginx:latest
-    restart: unless-stopped
-    ports:
-      - "443:443"
-      - "80:80"
-    environment:
-      CERTBOT_EMAIL: ${EMAIL}
-      DOMAIN: ${DOMAIN:-localhost}
-      USE_LOCAL_CA: ${USE_LOCAL_CA:-1}
-      STAGING: ${STAGING:-0}
-    volumes:
-      - letsencrypt:/etc/letsencrypt
-    depends_on:
-      backend:
-        condition: service_healthy
-      frontend:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "curl", "-fsk", "https://localhost/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
   datadog-agent:
     image: datadog/agent:latest
-    profiles:
-      - datadog
     restart: unless-stopped
     environment:
       DD_API_KEY: ${DD_API_KEY}
-      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_SITE: ${DD_SITE:-us5.datadoghq.com}
       DD_ENV: ${DD_ENV:-production}
       DD_APM_ENABLED: "true"
       DD_APM_NON_LOCAL_TRAFFIC: "true"
       DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: "0.0.0.0:4317"
       DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: "0.0.0.0:4318"
       DD_LOGS_ENABLED: "true"
-      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "false"
-      DD_CONTAINER_INCLUDE_LABELS: "com.datadoghq.tags.service"
-      DD_CONTAINER_EXCLUDE: "name:datadog-agent"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      DD_CONTAINER_EXCLUDE_LOGS: "name:datadog-agent"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+      - datadog-run:/opt/datadog-agent/run:rw
 
 volumes:
   pgdata:
-  letsencrypt:
+  datadog-run:

@@ -5,7 +5,7 @@ interface DeviceCodeDisplayProps {
   userCode: string
   verificationUri: string
   verificationUriComplete: string
-  deviceCodeId: string
+  deviceCode: string
   onComplete: () => void
   onError: (message: string) => void
   onCancel: () => void
@@ -15,7 +15,7 @@ export function DeviceCodeDisplay({
   userCode,
   verificationUri,
   verificationUriComplete,
-  deviceCodeId,
+  deviceCode,
   onComplete,
   onError,
   onCancel,
@@ -32,9 +32,9 @@ export function DeviceCodeDisplay({
   const poll = useCallback(async () => {
     if (!mountedRef.current) return
     try {
-      const result = await pollDeviceCode(deviceCodeId)
+      const result = await pollDeviceCode(deviceCode)
       if (!mountedRef.current) return
-      if (result.status === 'complete') {
+      if (result.status === 'success') {
         stopPolling()
         onComplete()
       } else if (result.status === 'slow_down') {
@@ -48,7 +48,7 @@ export function DeviceCodeDisplay({
       stopPolling()
       onError(err instanceof Error ? err.message : 'Polling failed')
     }
-  }, [deviceCodeId, stopPolling, onComplete, onError])
+  }, [deviceCode, stopPolling, onComplete, onError])
 
   useEffect(() => {
     mountedRef.current = true

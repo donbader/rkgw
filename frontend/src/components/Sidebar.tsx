@@ -3,12 +3,11 @@ import { useSession } from './SessionGate'
 import { authHeaders } from '../lib/auth'
 
 interface SidebarProps {
-  connected: boolean
   open?: boolean
   onClose?: () => void
 }
 
-export function Sidebar({ connected, open, onClose }: SidebarProps) {
+export function Sidebar({ open, onClose }: SidebarProps) {
   const { user } = useSession()
 
   async function handleLogout() {
@@ -64,10 +63,6 @@ export function Sidebar({ connected, open, onClose }: SidebarProps) {
         </div>
       </div>
       <div className="sidebar-footer-actions">
-        {connected
-          ? <span className="tag-ok">STREAM</span>
-          : <span className="tag-err">STREAM</span>
-        }
         <button className="btn-logout" onClick={handleLogout} title="Sign out">
           $ logout
         </button>
