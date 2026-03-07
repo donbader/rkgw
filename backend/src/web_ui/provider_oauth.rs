@@ -41,6 +41,7 @@ pub trait TokenExchanger: Send + Sync {
         &self,
         provider: &str,
         code: &str,
+        state: &str,
         pkce_verifier: &str,
         redirect_uri: &str,
     ) -> Result<TokenExchangeResult, ApiError>;
@@ -205,29 +206,52 @@ impl TokenExchanger for HttpTokenExchanger {
         &self,
         provider: &str,
         code: &str,
+        state: &str,
         pkce_verifier: &str,
         redirect_uri: &str,
     ) -> Result<TokenExchangeResult, ApiError> {
         let config = get_provider_config(provider)?;
 
-        let mut params = vec![
-            ("grant_type", "authorization_code"),
-            ("code", code),
-            ("redirect_uri", redirect_uri),
-            ("code_verifier", pkce_verifier),
-            ("client_id", &config.client_id),
-        ];
-        if !config.client_secret.is_empty() {
-            params.push(("client_secret", &config.client_secret));
+        // Anthropic expects JSON body; OpenAI/Gemini expect form-encoded
+        let resp = if provider == "anthropic" {
+            // Strip #fragment from code (Anthropic may append state after #)
+            let clean_code = code.split('#').next().unwrap_or(code);
+            let mut body = serde_json::json!({
+                "grant_type": "authorization_code",
+                "code": clean_code,
+                "state": state,
+                "redirect_uri": redirect_uri,
+                "code_verifier": pkce_verifier,
+                "client_id": config.client_id,
+            });
+            if !config.client_secret.is_empty() {
+                body["client_secret"] = serde_json::Value::String(config.client_secret.clone());
+            }
+            tracing::debug!(provider = %provider, "Sending JSON token exchange to {}", config.token_url);
+            self.client
+                .post(config.token_url)
+                .header("Accept", "application/json")
+                .json(&body)
+                .send()
+                .await
+        } else {
+            let mut params = vec![
+                ("grant_type", "authorization_code"),
+                ("code", code),
+                ("redirect_uri", redirect_uri),
+                ("code_verifier", pkce_verifier),
+                ("client_id", &config.client_id as &str),
+            ];
+            if !config.client_secret.is_empty() {
+                params.push(("client_secret", &config.client_secret));
+            }
+            self.client
+                .post(config.token_url)
+                .form(&params)
+                .send()
+                .await
         }
-
-        let resp = self
-            .client
-            .post(config.token_url)
-            .form(&params)
-            .send()
-            .await
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Token exchange failed: {}", e)))?;
+        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Token exchange failed: {}", e)))?;
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
@@ -720,6 +744,7 @@ async fn relay_callback(
         .exchange_code(
             &provider,
             &body.code,
+            &body.state,
             &pending_state.pkce_verifier,
             config.redirect_uri,
         )

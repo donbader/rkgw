@@ -492,6 +492,7 @@ mod tests {
             &self,
             _provider: &str,
             _code: &str,
+            _state: &str,
             _pkce_verifier: &str,
             _redirect_uri: &str,
         ) -> Result<TokenExchangeResult, ApiError> {
