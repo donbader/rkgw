@@ -220,7 +220,7 @@ async fn delete_api_key(
 pub fn api_key_routes() -> Router<AppState> {
     Router::new()
         .route("/keys", get(list_api_keys).post(create_api_key))
-        .route("/keys/{id}", delete(delete_api_key))
+        .route("/keys/:id", delete(delete_api_key))
 }
 
 // ── Public utilities for auth middleware ──────────────────────────────

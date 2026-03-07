@@ -736,16 +736,16 @@ async fn disconnect_provider(
 pub fn provider_oauth_routes() -> Router<AppState> {
     Router::new()
         .route("/providers/status", get(providers_status))
-        .route("/providers/{provider}/connect", get(provider_connect))
-        .route("/providers/{provider}", delete(disconnect_provider))
+        .route("/providers/:provider/connect", get(provider_connect))
+        .route("/providers/:provider", delete(disconnect_provider))
 }
 
 /// Build the public (no session) relay routes.
 /// These are authenticated by the relay_token, not by session cookie.
 pub fn provider_oauth_public_routes() -> Router<AppState> {
     Router::new()
-        .route("/providers/{provider}/relay-script", get(relay_script))
-        .route("/providers/{provider}/relay", post(relay_callback))
+        .route("/providers/:provider/relay-script", get(relay_script))
+        .route("/providers/:provider/relay", post(relay_callback))
 }
 
 #[cfg(test)]

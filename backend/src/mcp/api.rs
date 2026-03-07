@@ -313,9 +313,9 @@ pub fn mcp_admin_routes() -> Router<AppState> {
     Router::new()
         .route("/clients", get(list_clients).post(create_client))
         .route(
-            "/clients/{id}",
+            "/clients/:id",
             axum::routing::put(update_client).delete(delete_client),
         )
-        .route("/clients/{id}/reconnect", post(reconnect_client))
-        .route("/clients/{id}/tools", get(list_client_tools))
+        .route("/clients/:id/reconnect", post(reconnect_client))
+        .route("/clients/:id/tools", get(list_client_tools))
 }

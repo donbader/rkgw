@@ -641,15 +641,15 @@ async fn get_user_detail(
 pub fn domain_routes() -> Router<AppState> {
     Router::new()
         .route("/domains", get(list_domains).post(add_domain))
-        .route("/domains/{domain}", delete(remove_domain))
+        .route("/domains/:domain", delete(remove_domain))
 }
 
 /// Build the user management router (admin only).
 pub fn user_routes() -> Router<AppState> {
     Router::new()
         .route("/users", get(list_users))
-        .route("/users/{id}/role", put(update_user_role))
-        .route("/users/{id}", get(get_user_detail).delete(delete_user))
+        .route("/users/:id/role", put(update_user_role))
+        .route("/users/:id", get(get_user_detail).delete(delete_user))
 }
 
 #[cfg(test)]

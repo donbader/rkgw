@@ -547,12 +547,12 @@ pub fn guardrails_routes() -> Router<AppState> {
             get(list_profiles).post(create_profile),
         )
         .route(
-            "/guardrails/profiles/{id}",
+            "/guardrails/profiles/:id",
             get(get_profile).put(update_profile).delete(delete_profile),
         )
         .route("/guardrails/rules", get(list_rules).post(create_rule))
         .route(
-            "/guardrails/rules/{id}",
+            "/guardrails/rules/:id",
             get(get_rule).put(update_rule).delete(delete_rule),
         )
         .route("/guardrails/test", post(test_profile))
