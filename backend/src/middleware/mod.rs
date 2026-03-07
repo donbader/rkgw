@@ -43,12 +43,10 @@ pub async fn auth_middleware(
     let raw_key = extract_api_key(&request).ok_or_else(|| {
         let path = request.uri().path();
         let method = request.method();
-        let request_id = Uuid::new_v4().to_string()[..8].to_string();
         tracing::warn!(
-            "[{}] Access attempt with invalid or missing API key: {} {}",
-            request_id,
-            method,
-            path
+            method = %method,
+            path = %path,
+            "Access attempt with invalid or missing API key"
         );
         ApiError::AuthError("Invalid or missing API Key".to_string())
     })?;
@@ -78,6 +76,9 @@ pub async fn auth_middleware(
             .map_err(|e| ApiError::AuthError(format!("Failed to get access token: {}", e)))?;
         let region = auth.get_region().await;
         drop(auth);
+
+        // Record proxy-only user on the span (nil UUID signals shared credentials)
+        tracing::Span::current().record("usr.id", tracing::field::display(Uuid::nil()));
 
         let creds = UserKiroCreds {
             user_id: Uuid::nil(),
@@ -190,6 +191,11 @@ pub async fn auth_middleware(
             (tok, refresh_tok, region)
         }
     };
+
+    // Record the authenticated user ID on the current tracing span so it
+    // appears in all downstream log lines (including the JSON output for
+    // Datadog log correlation).
+    tracing::Span::current().record("usr.id", tracing::field::display(&user_id));
 
     let creds = UserKiroCreds {
         user_id,

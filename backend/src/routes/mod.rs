@@ -394,10 +394,10 @@ async fn chat_completions_handler(
         .map_err(|e| ApiError::ValidationError(format!("Invalid JSON: {}", e)))?;
 
     tracing::info!(
-        "Request to /v1/chat/completions: model={}, stream={}, messages={}",
-        request.model,
-        request.stream,
-        request.messages.len()
+        model = %request.model,
+        stream = request.stream,
+        messages = request.messages.len(),
+        "Request to /v1/chat/completions"
     );
 
     // Validate request
@@ -412,11 +412,11 @@ async fn chat_completions_handler(
     let model_id = resolution.internal_id.clone();
 
     tracing::debug!(
-        "Model resolution: {} -> {} (source: {}, verified: {})",
-        request.model,
-        model_id,
-        resolution.source,
-        resolution.is_verified
+        model = %request.model,
+        internal_id = %model_id,
+        source = %resolution.source,
+        verified = resolution.is_verified,
+        "Model resolved"
     );
 
     // Generate conversation ID
@@ -474,6 +474,7 @@ async fn chat_completions_handler(
     let kiro_payload = kiro_payload_result.payload;
 
     tracing::debug!(
+        model = %request.model,
         "Kiro payload: {}",
         serde_json::to_string_pretty(&kiro_payload).unwrap_or_default()
     );
@@ -530,11 +531,11 @@ async fn chat_completions_handler(
         .and_then(|v| v.as_bool())
         .unwrap_or(true); // Changed from false to true
 
-    tracing::info!(
-        "Stream options: {:?}, include_usage: {}, streaming: {}",
-        request.stream_options,
-        include_usage,
-        request.stream
+    tracing::debug!(
+        model = %request.model,
+        include_usage = include_usage,
+        stream = request.stream,
+        "Stream options: {:?}", request.stream_options
     );
 
     // Handle streaming vs non-streaming
@@ -628,10 +629,10 @@ async fn anthropic_messages_handler(
         .map_err(|e| ApiError::ValidationError(format!("Invalid JSON: {}", e)))?;
 
     tracing::info!(
-        "Request to /v1/messages: model={}, stream={}, messages={}",
-        request.model,
-        request.stream,
-        request.messages.len()
+        model = %request.model,
+        stream = request.stream,
+        messages = request.messages.len(),
+        "Request to /v1/messages"
     );
 
     // Check anthropic-version header (optional, for compatibility logging)
@@ -661,11 +662,11 @@ async fn anthropic_messages_handler(
     let model_id = resolution.internal_id.clone();
 
     tracing::debug!(
-        "Model resolution: {} -> {} (source: {}, verified: {})",
-        request.model,
-        model_id,
-        resolution.source,
-        resolution.is_verified
+        model = %request.model,
+        internal_id = %model_id,
+        source = %resolution.source,
+        verified = resolution.is_verified,
+        "Model resolved"
     );
 
     // Generate conversation ID
@@ -732,6 +733,7 @@ async fn anthropic_messages_handler(
     let kiro_payload = kiro_payload_result.payload;
 
     tracing::debug!(
+        model = %request.model,
         "Kiro payload: {}",
         serde_json::to_string_pretty(&kiro_payload).unwrap_or_default()
     );

@@ -39,6 +39,9 @@ async fn main() -> Result<()> {
         // When Datadog is enabled, use structured JSON logs so the Agent can parse
         // and correlate them with APM traces.  The `Layer for Option<L>` blanket
         // impl makes the inactive branch a zero-cost no-op.
+        //
+        // dd.trace_id and dd.span_id are recorded as span fields by a middleware
+        // (not in the formatter, which would deadlock due to re-entrancy).
         let dd_configured = datadog::dd_agent_configured();
         let json_fmt = dd_configured.then(|| {
             tracing_subscriber::fmt::layer()
@@ -53,14 +56,14 @@ async fn main() -> Result<()> {
                 .with_thread_ids(false)
         });
 
-        // Datadog APM layer — Some(layer) when DD_AGENT_HOST is set, None otherwise.
+        // Datadog APM layer (innermost to avoid filtering events from fmt layer).
         let dd_layer = datadog::init_datadog();
 
         tracing_subscriber::registry()
+            .with(dd_layer)
             .with(env_filter)
             .with(json_fmt)
             .with(text_fmt)
-            .with(dd_layer)
             .init();
     }
 
@@ -181,7 +184,9 @@ async fn main() -> Result<()> {
                 }
             }
         } else {
-            tracing::info!("No shared credentials — model list will be populated on first user request");
+            tracing::info!(
+                "No shared credentials — model list will be populated on first user request"
+            );
         }
     } else {
         tracing::info!("Skipping model loading — setup not complete");
@@ -452,22 +457,34 @@ fn build_app(state: routes::AppState) -> axum::Router {
             state.clone(),
             middleware::debug_middleware,
         ))
+        // Record dd.trace_id/dd.span_id on the http_request span for Datadog
+        // log-trace correlation.  Runs inside the TraceLayer span.
+        .layer(axum::middleware::from_fn(datadog::dd_context_middleware))
         .layer(
             tower_http::trace::TraceLayer::new_for_http().make_span_with(
                 |request: &axum::http::Request<axum::body::Body>| {
                     let path = request.uri().path();
+                    // Generate a short request ID for correlation across log lines.
+                    let request_id = &uuid::Uuid::new_v4().to_string()[..8];
                     if path == "/health" || path == "/" {
-                        // Debug level: filtered out in production by env_filter, no OTel span exported
                         tracing::debug_span!(
                             "http_request",
                             method = %request.method(),
-                            path = %path
+                            path = %path,
+                            request_id = %request_id,
+                            usr.id = tracing::field::Empty,
+                            dd.trace_id = tracing::field::Empty,
+                            dd.span_id = tracing::field::Empty,
                         )
                     } else {
                         tracing::info_span!(
                             "http_request",
                             method = %request.method(),
-                            path = %path
+                            path = %path,
+                            request_id = %request_id,
+                            usr.id = tracing::field::Empty,
+                            dd.trace_id = tracing::field::Empty,
+                            dd.span_id = tracing::field::Empty,
                         )
                     }
                 },

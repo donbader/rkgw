@@ -11,6 +11,17 @@
 //! The `Layer for Option<L>` blanket impl in `tracing-subscriber` turns a `None`
 //! into a zero-cost no-op.
 //!
+//! # JSON log-trace correlation
+//!
+//! When the JSON formatter is active (i.e. Datadog is configured), use
+//! [`DdJsonFormat`] as the event formatter.  It wraps the standard JSON
+//! formatter and injects `dd.trace_id` and `dd.span_id` as top-level fields
+//! on every log line so the Datadog Agent can correlate logs with APM traces.
+//!
+//! Datadog expects:
+//! - `dd.trace_id`: lower 64 bits of the 128-bit OTel trace ID, as a decimal string
+//! - `dd.span_id`: the 64-bit OTel span ID, as a decimal string
+//!
 //! # Metrics
 //!
 //! Call [`init_otel_metrics`] to initialise a `SdkMeterProvider` that exports
@@ -35,10 +46,68 @@
 //! | `DD_VERSION`      | *unset*        | Service version tag                      |
 
 use anyhow::Context as _;
+use axum::body::Body;
+use axum::http::Request;
+use axum::middleware::Next;
+use axum::response::Response;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use tracing::Subscriber;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::registry::LookupSpan;
+
+// ── Trace ID conversion ──────────────────────────────────────────────────────
+
+/// Convert a 128-bit OpenTelemetry trace ID to Datadog format.
+///
+/// Datadog uses the **lower 64 bits** of the 128-bit trace ID, represented as a
+/// decimal string.  Returns `"0"` for invalid/zero trace IDs.
+pub fn otel_trace_id_to_dd(trace_id: opentelemetry::trace::TraceId) -> String {
+    let bytes = trace_id.to_bytes();
+    // Lower 64 bits = bytes[8..16]
+    let lower_64 = u64::from_be_bytes([
+        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+    ]);
+    lower_64.to_string()
+}
+
+/// Convert a 64-bit OpenTelemetry span ID to Datadog format (decimal string).
+///
+/// Returns `"0"` for invalid/zero span IDs.
+pub fn otel_span_id_to_dd(span_id: opentelemetry::trace::SpanId) -> String {
+    let bytes = span_id.to_bytes();
+    let val = u64::from_be_bytes(bytes);
+    val.to_string()
+}
+
+// ── DD context middleware ─────────────────────────────────────────────────────
+
+/// Axum middleware that records `dd.trace_id` and `dd.span_id` on the current
+/// tracing span.  The `http_request` span must declare these as `Empty` fields.
+///
+/// This runs in normal async code (not inside a subscriber callback), so
+/// accessing the OTel span context via `tracing::Span::current()` is safe.
+pub async fn dd_context_middleware(request: Request<Body>, next: Next) -> Response {
+    use opentelemetry::trace::TraceContextExt as _;
+    use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+
+    let otel_cx = tracing::Span::current().context();
+    let span_ref = otel_cx.span();
+    let span_ctx = span_ref.span_context();
+
+    if span_ctx.is_valid() {
+        let current = tracing::Span::current();
+        current.record(
+            "dd.trace_id",
+            otel_trace_id_to_dd(span_ctx.trace_id()).as_str(),
+        );
+        current.record(
+            "dd.span_id",
+            otel_span_id_to_dd(span_ctx.span_id()).as_str(),
+        );
+    }
+
+    next.run(request).await
+}
 
 // ── Config helpers ────────────────────────────────────────────────────────────
 
@@ -86,7 +155,7 @@ where
         }
         Err(e) => {
             // eprintln! intentional: tracing subscriber is not yet initialized at this call site
-            eprintln!("[WARN] Datadog APM init failed ({e}) — tracing disabled");
+            eprintln!("[WARN] Datadog APM init failed ({e:#}) — tracing disabled");
             None
         }
     }
@@ -235,5 +304,75 @@ mod tests {
         let provider = SdkMeterProvider::builder().build();
         // Should complete without error
         shutdown(Some(&provider));
+    }
+
+    // ── Trace ID conversion tests ────────────────────────────────────────
+
+    #[test]
+    fn test_otel_trace_id_to_dd_extracts_lower_64_bits() {
+        // 128-bit trace ID: upper 64 = 1, lower 64 = 42
+        let mut bytes = [0u8; 16];
+        bytes[0..8].copy_from_slice(&1u64.to_be_bytes()); // upper 64
+        bytes[8..16].copy_from_slice(&42u64.to_be_bytes()); // lower 64
+        let trace_id = opentelemetry::trace::TraceId::from_bytes(bytes);
+
+        assert_eq!(otel_trace_id_to_dd(trace_id), "42");
+    }
+
+    #[test]
+    fn test_otel_trace_id_to_dd_zero() {
+        let trace_id = opentelemetry::trace::TraceId::from_bytes([0u8; 16]);
+        assert_eq!(otel_trace_id_to_dd(trace_id), "0");
+    }
+
+    #[test]
+    fn test_otel_trace_id_to_dd_max_lower_64() {
+        let mut bytes = [0u8; 16];
+        bytes[8..16].copy_from_slice(&u64::MAX.to_be_bytes());
+        let trace_id = opentelemetry::trace::TraceId::from_bytes(bytes);
+
+        assert_eq!(otel_trace_id_to_dd(trace_id), u64::MAX.to_string());
+    }
+
+    #[test]
+    fn test_otel_trace_id_to_dd_known_value() {
+        // A realistic trace ID: 463ac35c9f6413ad48485a3953bb6124
+        let bytes: [u8; 16] = [
+            0x46, 0x3a, 0xc3, 0x5c, 0x9f, 0x64, 0x13, 0xad, 0x48, 0x48, 0x5a, 0x39, 0x53, 0xbb,
+            0x61, 0x24,
+        ];
+        let trace_id = opentelemetry::trace::TraceId::from_bytes(bytes);
+        // Lower 64 bits: 0x4848_5a39_53bb_6124
+        let expected = u64::from_be_bytes([0x48, 0x48, 0x5a, 0x39, 0x53, 0xbb, 0x61, 0x24]);
+        assert_eq!(otel_trace_id_to_dd(trace_id), expected.to_string());
+    }
+
+    #[test]
+    fn test_otel_span_id_to_dd_decimal() {
+        let bytes = 12345u64.to_be_bytes();
+        let span_id = opentelemetry::trace::SpanId::from_bytes(bytes);
+
+        assert_eq!(otel_span_id_to_dd(span_id), "12345");
+    }
+
+    #[test]
+    fn test_otel_span_id_to_dd_zero() {
+        let span_id = opentelemetry::trace::SpanId::from_bytes([0u8; 8]);
+        assert_eq!(otel_span_id_to_dd(span_id), "0");
+    }
+
+    #[test]
+    fn test_otel_span_id_to_dd_max() {
+        let span_id = opentelemetry::trace::SpanId::from_bytes(u64::MAX.to_be_bytes());
+        assert_eq!(otel_span_id_to_dd(span_id), u64::MAX.to_string());
+    }
+
+    #[test]
+    fn test_otel_span_id_to_dd_known_value() {
+        // Span ID: 0x0102_0304_0506_0708
+        let bytes: [u8; 8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let span_id = opentelemetry::trace::SpanId::from_bytes(bytes);
+        let expected = u64::from_be_bytes(bytes);
+        assert_eq!(otel_span_id_to_dd(span_id), expected.to_string());
     }
 }
