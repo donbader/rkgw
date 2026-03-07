@@ -128,7 +128,12 @@ cd backend && cargo test --lib                # Unit tests
 # Frontend
 cd frontend && npm run build                  # Production build
 cd frontend && npm run lint                   # ESLint
-cd frontend && npm run test:e2e               # Playwright E2E
+
+# E2E Tests
+cd e2e-tests && npm test                      # All tests (API + browser)
+cd e2e-tests && npm run test:api              # Backend API tests only
+cd e2e-tests && npm run test:ui               # Frontend browser tests only
+cd e2e-tests && npm run test:setup            # Capture auth session
 
 # Docker
 docker compose build                          # Build all images

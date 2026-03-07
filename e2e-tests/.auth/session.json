@@ -1,0 +1,25 @@
+{
+  "cookies": [
+    {
+      "name": "kgw_session",
+      "value": "6dffb3f0-d6d5-48f6-a98e-ef7ea72a7201",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "csrf_token",
+      "value": "7b387041-4fee-4293-abb4-8f52810c9500",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}

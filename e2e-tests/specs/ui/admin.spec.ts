@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { Card, Table } from '../helpers/selectors.js'
-import { navigateTo } from '../helpers/navigation.js'
+import { Card, Table } from '../../helpers/selectors.js'
+import { navigateTo } from '../../helpers/navigation.js'
 
 test.describe('Admin page', () => {
   test('renders Domain Allowlist and User Management sections', async ({ page }) => {

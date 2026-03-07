@@ -12,6 +12,8 @@
 
 | completed | provider-oauth-relay_20260307 | Provider OAuth Relay + Profile Page Merge | feature | backend, frontend, backend-qa, frontend-qa | 2026-03-07 |
 
+| planned | centralize-e2e-tests_20260307 | Centralize Real Backend API Tests to e2e-tests | refactor | backend-qa, frontend-qa | 2026-03-07 |
+
 <!-- Tracks registered by /conductor:new-track -->
 
 ## Archived Tracks

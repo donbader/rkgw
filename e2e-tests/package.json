@@ -1,0 +1,21 @@
+{
+  "name": "rkgw-e2e-tests",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "npx playwright test",
+    "test:api": "npx playwright test --project=api",
+    "test:ui": "npx playwright test --project=ui-public --project=ui-authenticated --project=ui-admin",
+    "test:ui:public": "npx playwright test --project=ui-public",
+    "test:ui:auth": "npx playwright test --project=ui-authenticated",
+    "test:ui:admin": "npx playwright test --project=ui-admin",
+    "test:setup": "npx playwright codegen --ignore-https-errors --save-storage=.auth/session.json https://localhost/_ui/"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.52.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

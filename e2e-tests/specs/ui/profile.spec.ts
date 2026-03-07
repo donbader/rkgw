@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { Card, Status } from '../helpers/selectors.js'
-import { navigateTo } from '../helpers/navigation.js'
+import { Card, Status } from '../../helpers/selectors.js'
+import { navigateTo } from '../../helpers/navigation.js'
 
 test.describe('Profile page', () => {
   test('renders user info with name and email', async ({ page }) => {

@@ -55,3 +55,7 @@ target/
 
 # Playwright MCP
 .playwright-mcp/
+
+# E2E tests
+e2e-tests/node_modules/
+e2e-tests/test-results/

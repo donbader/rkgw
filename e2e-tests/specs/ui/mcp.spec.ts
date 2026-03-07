@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { Card, Form } from '../helpers/selectors.js'
-import { navigateTo } from '../helpers/navigation.js'
+import { Card, Form } from '../../helpers/selectors.js'
+import { navigateTo } from '../../helpers/navigation.js'
 
 test.describe('MCP Servers page', () => {
   test('MCP SERVERS section header is visible', async ({ page }) => {

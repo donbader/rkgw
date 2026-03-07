@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { Form } from '../helpers/selectors.js'
-import { navigateTo } from '../helpers/navigation.js'
+import { Form } from '../../helpers/selectors.js'
+import { navigateTo } from '../../helpers/navigation.js'
 
 const CONFIG_GROUPS = [
   'Server',

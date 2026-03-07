@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { Nav } from '../helpers/selectors.js'
-import { navigateTo } from '../helpers/navigation.js'
+import { Nav } from '../../helpers/selectors.js'
+import { navigateTo } from '../../helpers/navigation.js'
 
 test.describe('Navigation and layout', () => {
   test('layout renders sidebar, top-bar, and main content', async ({ page }) => {

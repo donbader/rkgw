@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { Card } from '../helpers/selectors.js'
-import { navigateTo } from '../helpers/navigation.js'
+import { Card } from '../../helpers/selectors.js'
+import { navigateTo } from '../../helpers/navigation.js'
 
 test.describe('Dashboard page', () => {
   test('renders section headers', async ({ page }) => {

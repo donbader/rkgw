@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { Card, Form } from '../helpers/selectors.js'
-import { navigateTo } from '../helpers/navigation.js'
+import { Card, Form } from '../../helpers/selectors.js'
+import { navigateTo } from '../../helpers/navigation.js'
 
 test.describe('Guardrails page', () => {
   test('renders three sections: PROFILES, RULES, TEST GUARDRAIL', async ({ page }) => {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { Login } from '../helpers/selectors.js'
+import { Login } from '../../helpers/selectors.js'
 
 test.describe('Login page', () => {
   test('renders auth card with Google sign-in button', async ({ page }) => {

@@ -1,9 +1,7 @@
 import { test } from '@playwright/test'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const authFile = path.join(__dirname, '..', '.auth', 'session.json')
+const authFile = path.resolve(__dirname, '..', '..', '.auth', 'session.json')
 
 /**
  * Interactive session capture.
@@ -13,7 +11,7 @@ const authFile = path.join(__dirname, '..', '.auth', 'session.json')
  * 2. Verify you land on the dashboard
  * 3. Resume the test (click "Resume" in the Playwright inspector)
  *
- * The browser state (cookies) is then saved to e2e/.auth/session.json
+ * The browser state (cookies) is then saved to e2e-tests/.auth/session.json
  * for use by authenticated and admin test projects.
  */
 test('capture authenticated session', async ({ page }) => {

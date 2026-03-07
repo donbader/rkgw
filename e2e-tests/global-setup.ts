@@ -1,21 +1,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 interface StorageState {
   cookies?: Array<{ name: string }>
 }
 
 export default function globalSetup() {
-  const sessionPath = path.join(__dirname, '.auth', 'session.json')
+  const sessionPath = path.resolve(__dirname, '.auth', 'session.json')
 
   if (!fs.existsSync(sessionPath)) {
     console.warn(
-      '\n⚠  No session file found at e2e/.auth/session.json\n' +
+      '\n⚠  No session file found at e2e-tests/.auth/session.json\n' +
       '   Run "npm run test:e2e:setup" to capture a session interactively.\n' +
-      '   Only the "setup" and "public" projects will work without it.\n'
+      '   Only the "public" project will work without it.\n'
     )
     return
   }
@@ -25,7 +22,7 @@ export default function globalSetup() {
   try {
     state = JSON.parse(raw) as StorageState
   } catch {
-    throw new Error(`e2e/.auth/session.json is not valid JSON`)
+    throw new Error(`e2e-tests/.auth/session.json is not valid JSON`)
   }
 
   const cookies = state.cookies ?? []
@@ -38,7 +35,7 @@ export default function globalSetup() {
       !hasCsrf && 'csrf_token',
     ].filter(Boolean).join(', ')
     throw new Error(
-      `e2e/.auth/session.json is missing required cookies: ${missing}\n` +
+      `e2e-tests/.auth/session.json is missing required cookies: ${missing}\n` +
       'Run "npm run test:e2e:setup" to capture a fresh session.'
     )
   }

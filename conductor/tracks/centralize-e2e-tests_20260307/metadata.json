@@ -1,0 +1,19 @@
+{
+  "id": "centralize-e2e-tests_20260307",
+  "title": "Centralize Real Backend API Tests to e2e-tests",
+  "type": "refactor",
+  "status": "planned",
+  "preset": "backend-feature",
+  "services": ["backend-qa", "frontend-qa"],
+  "agents": ["scrum-master", "rust-backend-engineer", "backend-qa"],
+  "branch": "refactor/centralize-e2e-tests_20260307",
+  "created_at": "2026-03-07T22:15:00.000Z",
+  "updated_at": "2026-03-07T22:15:00.000Z",
+  "phases": {
+    "1": { "name": "Project Setup", "status": "pending", "tasks_total": 4, "tasks_done": 0 },
+    "2": { "name": "Backend API Tests", "status": "pending", "tasks_total": 7, "tasks_done": 0 },
+    "3": { "name": "Frontend E2E Migration", "status": "pending", "tasks_total": 5, "tasks_done": 0 },
+    "4": { "name": "Verification & Cleanup", "status": "pending", "tasks_total": 4, "tasks_done": 0 }
+  },
+  "commits": []
+}

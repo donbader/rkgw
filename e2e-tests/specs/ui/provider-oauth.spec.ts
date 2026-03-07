@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { Status } from '../helpers/selectors.js'
-import { navigateTo, expectToastMessage } from '../helpers/navigation.js'
+import { Status } from '../../helpers/selectors.js'
+import { navigateTo, expectToastMessage } from '../../helpers/navigation.js'
 
 // --- Types ---
 

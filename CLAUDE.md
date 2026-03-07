@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 rkgw/
 ├── backend/                    # Rust API server (Axum 0.7 + Tokio)
 ├── frontend/                   # React 19 SPA (Vite 7 + TypeScript 5.9), served by jonasal/nginx-certbot
+├── e2e-tests/                  # Playwright E2E tests (API + browser)
 ├── docker-compose.yml          # 3 services: db, backend, frontend (nginx + auto-TLS)
 ├── docker-compose.gateway.yml  # Proxy-only: single backend container, no DB/SSO
 └── .env.example
@@ -37,6 +38,15 @@ cd backend && cargo test --features test-utils   # Integration tests
 cd frontend && npm run build    # tsc -b && vite build
 cd frontend && npm run lint     # eslint
 cd frontend && npm run dev      # dev server (port 5173, proxies /_ui/api → localhost:8000)
+```
+
+### E2E Tests
+
+```bash
+cd e2e-tests && npm test                # Run all tests (API + browser)
+cd e2e-tests && npm run test:api        # Backend API tests only (no browser)
+cd e2e-tests && npm run test:ui         # Frontend browser tests only
+cd e2e-tests && npm run test:setup      # Capture auth session interactively
 ```
 
 ### Docker
@@ -169,7 +179,7 @@ Defined in `backend/src/routes/mod.rs`:
 
 ## Playwright
 
-All Playwright screenshots and artifacts must be saved to `.playwright-mcp/` (gitignored).
+All Playwright E2E tests live in `e2e-tests/` (API tests in `specs/api/`, browser tests in `specs/ui/`). Screenshots and artifacts must be saved to `.playwright-mcp/` (gitignored).
 
 ## Code Style
 
