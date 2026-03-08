@@ -45,7 +45,7 @@ pub async fn mcp_post_handler(
                         }
                     },
                     "serverInfo": {
-                        "name": "kiro-gateway",
+                        "name": "harbangan",
                         "version": env!("CARGO_PKG_VERSION")
                     }
                 })),

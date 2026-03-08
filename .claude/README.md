@@ -1,6 +1,6 @@
 # .claude/ — Full Documentation
 
-This directory is the AI workflow infrastructure for the rkgw Gateway. It replaces the external `agent-teams@claude-code-workflows` plugin with a fully self-contained system optimized for the rkgw Rust/React architecture.
+This directory is the AI workflow infrastructure for Harbangan. It replaces the external `agent-teams@claude-code-workflows` plugin with a fully self-contained system optimized for the Harbangan Rust/React architecture.
 
 ## Directory Layout
 
@@ -90,7 +90,7 @@ Skills are invocable via `/skill-name [arguments]`.
 | Skill | Purpose |
 |-------|---------|
 | `track-management` | Track lifecycle, status markers, sizing guidelines, metadata schema |
-| `workflow-patterns` | TDD task lifecycle, rkgw TDD policy, phase checkpoints, git integration |
+| `workflow-patterns` | TDD task lifecycle, Harbangan TDD policy, phase checkpoints, git integration |
 | `team-coordination` | File ownership rules, communication protocols, team sizing, integration patterns |
 
 ---

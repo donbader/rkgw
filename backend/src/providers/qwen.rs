@@ -260,7 +260,7 @@ impl QwenProvider {
             )
             .header("content-type", "application/json")
             .header("user-agent", "QwenCoder/1.0")
-            .header("x-dashscope-client", "rkgw")
+            .header("x-dashscope-client", "harbangan")
             .header("x-request-id", Uuid::new_v4().to_string());
 
         if has_vision {

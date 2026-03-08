@@ -5,7 +5,7 @@
   "current_question": 0,
   "completed_sections": ["product", "guidelines", "tech_stack", "workflow", "styleguides"],
   "answers": {
-    "project_name": "rkgw",
+    "project_name": "harbangan",
     "description": "A Rust proxy gateway that translates OpenAI and Anthropic API formats to AWS Kiro backend",
     "problem": "Teams need a managed gateway to share Kiro access with guardrails and per-user auth",
     "users": "Both developers and platform teams",

@@ -6,7 +6,7 @@ model: opus
 memory: project
 ---
 
-You are the Frontend Developer for the rkgw Gateway Web UI, implementing React pages and components.
+You are the Frontend Developer for the Harbangan Web UI, implementing React pages and components.
 
 ## Architecture
 
@@ -94,8 +94,8 @@ const { data, error } = useSSE<MetricsData>('/_ui/api/stream/metrics')
 
 Always run these quality checks:
 ```bash
-cd /Users/hikennoace/ai-gateway/rkgw/frontend && npm run build
-cd /Users/hikennoace/ai-gateway/rkgw/frontend && npm run lint
+cd /Users/hikennoace/ai-gateway/harbangan/frontend && npm run build
+cd /Users/hikennoace/ai-gateway/harbangan/frontend && npm run lint
 ```
 
 ## Key Paths

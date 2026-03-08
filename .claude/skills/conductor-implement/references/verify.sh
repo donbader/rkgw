@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# verify.sh — Run all quality checks for the rkgw project.
+# verify.sh — Run all quality checks for the harbangan project.
 #
 # Usage:
 #   ./verify.sh              # Check all services (backend + frontend)
@@ -79,7 +79,7 @@ case "$SERVICE" in
 esac
 
 echo "${BOLD}================================================================${RESET}"
-echo "${BOLD} rkgw verification — service: ${SERVICE}${RESET}"
+echo "${BOLD} Harbangan verification — service: ${SERVICE}${RESET}"
 echo "${BOLD}================================================================${RESET}"
 echo ""
 

@@ -14,7 +14,7 @@ allowed-tools:
 
 # Conductor Setup
 
-Initialize or update the conductor orchestration layer for the rkgw Gateway project.
+Initialize or update the conductor orchestration layer for the Harbangan project.
 
 ## Critical Constraints
 
@@ -44,9 +44,9 @@ Read `conductor/setup_state.json`. If complete, default to Refresh. If missing/i
 
 | Field | Auto-detect | Default |
 |-------|-------------|---------|
-| Project name | — | rkgw Gateway |
+| Project name | — | Harbangan |
 | Base branch | `git symbolic-ref refs/remotes/origin/HEAD` | main |
-| Repository root | `git rev-parse --show-toplevel` | /Users/hikennoace/ai-gateway/rkgw |
+| Repository root | `git rev-parse --show-toplevel` | /Users/hikennoace/ai-gateway/harbangan |
 
 ### 2.2 — Auto-detect Services
 
@@ -130,7 +130,7 @@ Generate `conductor/product-guidelines.md` with the collected answers, following
 ### 2.9 — Generate `tracks.md`
 
 ```markdown
-# rkgw Gateway — Track Index
+# Harbangan — Track Index
 
 | ID | Title | Type | Status | Services | Created |
 |----|-------|------|--------|----------|---------|
@@ -160,7 +160,7 @@ React 19 patterns, strict mode, CSS custom properties, apiFetch/useSSE, named ex
 ### 2.12 — Report
 
 ```
-Conductor initialized for rkgw Gateway
+Conductor initialized for Harbangan
   Artifacts: index.md, product.md, product-guidelines.md, tech-stack.md, workflow.md, tracks.md
   Services detected: 2 local + 1 infrastructure
   Style guides: rust.md, typescript.md

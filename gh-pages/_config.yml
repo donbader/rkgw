@@ -1,10 +1,10 @@
-title: Kiro Gateway
+title: Harbangan
 description: >-
   A high-performance Rust proxy gateway that exposes OpenAI and Anthropic-compatible
   APIs, translating requests to the Kiro API (AWS CodeWhisperer) backend.
 
 url: "https://if414013.github.io"
-baseurl: "/rkgw"
+baseurl: "/harbangan"
 
 remote_theme: just-the-docs/just-the-docs@v0.10.0
 
@@ -24,7 +24,7 @@ heading_anchors: true
 
 # Footer
 footer_content: >-
-  <a href="https://github.com/if414013/rkgw">Kiro Gateway on GitHub</a> &mdash;
+  <a href="https://github.com/if414013/harbangan">Harbangan on GitHub</a> &mdash;
   Built with Rust, Axum, and Tokio.
 
 # Back to top link
@@ -34,12 +34,12 @@ back_to_top_text: "Back to top"
 # Navigation structure
 nav_external_links:
   - title: GitHub
-    url: https://github.com/if414013/rkgw
+    url: https://github.com/if414013/harbangan
 
 # Aux links (top-right corner)
 aux_links:
   "View on GitHub":
-    - "https://github.com/if414013/rkgw"
+    - "https://github.com/if414013/harbangan"
 aux_links_new_tab: true
 
 # Callouts

@@ -1,6 +1,6 @@
 # Dependency Graph Patterns
 
-Visual patterns for task dependency design in rkgw agent teams. Choose the pattern that matches your feature's architecture.
+Visual patterns for task dependency design in Harbangan agent teams. Choose the pattern that matches your feature's architecture.
 
 ## Pattern 1: Fully Independent (Maximum Parallelism)
 
@@ -15,7 +15,7 @@ Task C ──┘
 - **Use when**: Tasks operate on completely separate modules
 - **Mitigation**: Define interface contracts before starting
 
-### rkgw Example: Independent Module Features
+### Harbangan Example: Independent Module Features
 
 ```
 Guardrails CEL rules ──┐
@@ -38,7 +38,7 @@ Task A ──> Task B ──> Task C ──> Task D
 - **Use when**: Each task depends on the output of the previous (avoid if possible)
 - **Mitigation**: Keep chain short; extract independent work into parallel tracks
 
-### rkgw Example: New API Format Support
+### Harbangan Example: New API Format Support
 
 ```
 Define Kiro model types ──> Write converter ──> Wire route handler ──> Add tests
@@ -62,7 +62,7 @@ Task A ──> ┤             ├──> Task D
 - **Use when**: B and C both need output from A (e.g., shared types)
 - **Mitigation**: Keep A minimal — only shared types/interfaces
 
-### rkgw Example: New Feature with Backend + Frontend
+### Harbangan Example: New Feature with Backend + Frontend
 
 ```
                   ┌──> Backend route handler    ──┐
@@ -90,7 +90,7 @@ Phase 3:  C1              (after Phase 2)
 - **Use when**: Natural phases with dependencies (build, test, deploy)
 - **Mitigation**: Minimize phase count; keep phases balanced
 
-### rkgw Example: Full-Stack Feature Rollout
+### Harbangan Example: Full-Stack Feature Rollout
 
 ```
 Phase 1 (Foundation):
@@ -121,7 +121,7 @@ Task A ──> Task B ──> Task C
 - **Use when**: Two independent feature branches from a common foundation
 - **Mitigation**: Regular sync points between chains
 
-### rkgw Example: Dual-Format Converter
+### Harbangan Example: Dual-Format Converter
 
 ```
 Define base converter types
@@ -150,7 +150,7 @@ Task A ──> Task B ──> Task C
 (where B doesn't actually need A's output)
 ```
 
-**Fix**: Remove the dependency. Let B run independently. Common in rkgw when backend and frontend tasks are unnecessarily chained.
+**Fix**: Remove the dependency. Let B run independently. Common in Harbangan when backend and frontend tasks are unnecessarily chained.
 
 ### Star Pattern (Single Bottleneck)
 

@@ -11,7 +11,7 @@
 - **colorScheme emulation**: Playwright Chromium defaults to `prefers-color-scheme: light` regardless of OS setting. Use `browser.newContext({ colorScheme: 'dark' })` to emulate dark mode. This matters because ThemeProvider reads `prefers-color-scheme` when no localStorage value exists.
 - **baseURL with browser.newContext()**: When creating contexts manually (e.g., for colorScheme), pass `baseURL` explicitly since it won't inherit from config's `use` block.
 - **Public pages**: Login page (`/_ui/login`) is testable without auth. All other pages redirect to login.
-- **Theme persistence**: ThemeProvider uses localStorage key `rkgw-theme`. Tests that set localStorage persist within the same browser context across navigations.
+- **Theme persistence**: ThemeProvider uses localStorage key `harbangan-theme`. Tests that set localStorage persist within the same browser context across navigations.
 
 ## Test Files
 - `theme-toggle.spec.ts` — Light/dark mode visual verification, persistence, CSS variable checks

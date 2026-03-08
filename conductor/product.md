@@ -1,14 +1,14 @@
-# Product Definition - rkgw
+# Product Definition - Harbangan
 
 ## Overview
 
-**Name:** rkgw
+**Name:** Harbangan
 **Version:** 1.0.8
 **Description:** A Rust proxy gateway that translates OpenAI and Anthropic API formats to AWS Kiro backend.
 
 ## Problem Statement
 
-Teams need a managed gateway to share Kiro access with guardrails and per-user authentication. Without rkgw, each developer would need direct Kiro credentials and there would be no centralized control over model access, usage tracking, or content safety.
+Teams need a managed gateway to share Kiro access with guardrails and per-user authentication. Without Harbangan, each developer would need direct Kiro credentials and there would be no centralized control over model access, usage tracking, or content safety.
 
 ## Target Users
 

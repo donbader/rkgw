@@ -1,4 +1,4 @@
-# Tech Stack - rkgw
+# Tech Stack - Harbangan
 
 ## Languages
 

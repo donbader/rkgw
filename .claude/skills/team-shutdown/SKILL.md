@@ -65,7 +65,7 @@ rm -rf ~/.claude/teams/{team-name}/
 ### Conductor Tracks
 Update `conductor/tracks.md` if applicable:
 ```bash
-cat /Users/hikennoace/ai-gateway/rkgw/conductor/tracks.md 2>/dev/null
+cat /Users/hikennoace/ai-gateway/harbangan/conductor/tracks.md 2>/dev/null
 ```
 
 ### Task List

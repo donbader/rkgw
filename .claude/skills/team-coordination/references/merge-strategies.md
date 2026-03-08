@@ -1,6 +1,6 @@
 # Integration and Merge Strategies
 
-Patterns for integrating parallel work streams in rkgw and preventing conflicts between backend and frontend agents.
+Patterns for integrating parallel work streams in Harbangan and preventing conflicts between backend and frontend agents.
 
 ## Integration Patterns
 
@@ -17,7 +17,7 @@ feature/mcp-health
 
 **When to use**: Small teams (2-3 agents), strict file ownership, no overlapping file changes.
 
-**rkgw suitability**: Good for most features. Backend and frontend have clear directory separation. Risk is low when file ownership rules from team-coordination are followed.
+**Harbangan suitability**: Good for most features. Backend and frontend have clear directory separation. Risk is low when file ownership rules from team-coordination are followed.
 
 ---
 
@@ -37,7 +37,7 @@ Merge order: backend (foundation) -> frontend (consumes API) -> tests -> e2e.
 
 **When to use**: Larger teams (4+), overlapping concerns, need for review gates between merges.
 
-**rkgw suitability**: Best for complex features touching multiple backend modules (e.g., guardrails + MCP + auth changes). Allows review at each merge point.
+**Harbangan suitability**: Best for complex features touching multiple backend modules (e.g., guardrails + MCP + auth changes). Allows review at each merge point.
 
 ---
 
@@ -53,7 +53,7 @@ main <- all agents commit
 
 **When to use**: CI/CD environments, features that can be incrementally enabled, continuous deployment.
 
-**rkgw suitability**: Natural fit. rkgw already uses runtime config flags (`mcp_enabled`, `guardrails_enabled`) stored in PostgreSQL and toggled via the web UI. New features can follow the same pattern:
+**Harbangan suitability**: Natural fit. Harbangan already uses runtime config flags (`mcp_enabled`, `guardrails_enabled`) stored in PostgreSQL and toggled via the web UI. New features can follow the same pattern:
 
 ```rust
 // In route handler
@@ -66,11 +66,11 @@ if config.read().await.feature_x_enabled {
 
 ---
 
-## rkgw Conflict Prevention
+## Harbangan Conflict Prevention
 
 ### Backend / Frontend Parallel Work
 
-The most common parallel pattern in rkgw is simultaneous backend and frontend development. These rules prevent conflicts:
+The most common parallel pattern in Harbangan is simultaneous backend and frontend development. These rules prevent conflicts:
 
 | Rule | Rationale |
 |------|-----------|
@@ -92,7 +92,7 @@ Some files are touched by multiple concerns. Handle them with single ownership +
 | `docker-compose.yml` | devops-engineer | DM with service/port changes |
 | `.env.example` | devops-engineer | DM with new variable name + description |
 
-### Merge Conflict Hotspots in rkgw
+### Merge Conflict Hotspots in Harbangan
 
 These files are most likely to cause merge conflicts when multiple agents work in parallel:
 

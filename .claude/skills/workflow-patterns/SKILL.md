@@ -23,7 +23,7 @@ Every task follows this 11-step lifecycle. Steps marked with * are conditional o
 
 ---
 
-## 2. rkgw TDD Policy
+## 2. Harbangan TDD Policy
 
 ### Required TDD
 
@@ -63,8 +63,8 @@ Tests can be written after implementation:
 
    | Service | Command |
    |---------|---------|
-   | Backend | `cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo clippy --all-targets && cargo test --lib` |
-   | Frontend | `cd /Users/hikennoace/ai-gateway/rkgw/frontend && npm run build && npm run lint` |
+   | Backend | `cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo clippy --all-targets && cargo test --lib` |
+   | Frontend | `cd /Users/hikennoace/ai-gateway/harbangan/frontend && npm run build && npm run lint` |
 
 3. **Generate phase summary**
 4. **WAIT for explicit user approval.** Never auto-advance.
@@ -115,7 +115,7 @@ type(scope): short description
 | `style` | Code formatting, whitespace, naming |
 | `perf` | Performance improvement |
 
-### Scopes (rkgw-Specific)
+### Scopes (Harbangan-Specific)
 
 | Scope | Covers |
 |-------|--------|

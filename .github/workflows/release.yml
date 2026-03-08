@@ -58,14 +58,14 @@ jobs:
       - name: Package (Unix)
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czvf ../../../../kiro-gateway-${{ matrix.target }}.tar.gz kiro-gateway
+          tar -czvf ../../../../harbangan-${{ matrix.target }}.tar.gz harbangan
           cd ../../../..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kiro-gateway-${{ matrix.target }}
-          path: kiro-gateway-${{ matrix.target }}.tar.gz
+          name: harbangan-${{ matrix.target }}
+          path: harbangan-${{ matrix.target }}.tar.gz
 
   release:
     name: Create Release
@@ -106,51 +106,51 @@ jobs:
       - name: Calculate SHA256 checksums
         id: checksums
         run: |
-          MACOS_INTEL_SHA=$(sha256sum artifacts/kiro-gateway-x86_64-apple-darwin/kiro-gateway-x86_64-apple-darwin.tar.gz | cut -d ' ' -f 1)
+          MACOS_INTEL_SHA=$(sha256sum artifacts/harbangan-x86_64-apple-darwin/harbangan-x86_64-apple-darwin.tar.gz | cut -d ' ' -f 1)
           echo "macos_intel_sha=$MACOS_INTEL_SHA" >> $GITHUB_OUTPUT
 
-          MACOS_ARM_SHA=$(sha256sum artifacts/kiro-gateway-aarch64-apple-darwin/kiro-gateway-aarch64-apple-darwin.tar.gz | cut -d ' ' -f 1)
+          MACOS_ARM_SHA=$(sha256sum artifacts/harbangan-aarch64-apple-darwin/harbangan-aarch64-apple-darwin.tar.gz | cut -d ' ' -f 1)
           echo "macos_arm_sha=$MACOS_ARM_SHA" >> $GITHUB_OUTPUT
 
-          LINUX_INTEL_SHA=$(sha256sum artifacts/kiro-gateway-x86_64-unknown-linux-gnu/kiro-gateway-x86_64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)
+          LINUX_INTEL_SHA=$(sha256sum artifacts/harbangan-x86_64-unknown-linux-gnu/harbangan-x86_64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)
           echo "linux_intel_sha=$LINUX_INTEL_SHA" >> $GITHUB_OUTPUT
 
-          LINUX_ARM_SHA=$(sha256sum artifacts/kiro-gateway-aarch64-unknown-linux-gnu/kiro-gateway-aarch64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)
+          LINUX_ARM_SHA=$(sha256sum artifacts/harbangan-aarch64-unknown-linux-gnu/harbangan-aarch64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)
           echo "linux_arm_sha=$LINUX_ARM_SHA" >> $GITHUB_OUTPUT
 
       - name: Generate Homebrew formula
         run: |
-          cat > kiro-gateway.rb <<'FORMULA_EOF'
-          class KiroGateway < Formula
-            desc "Proxy gateway for Kiro API - OpenAI and Anthropic compatible"
-            homepage "https://github.com/if414013/rkgw"
+          cat > harbangan.rb <<'FORMULA_EOF'
+          class Harbangan < Formula
+            desc "Proxy gateway for AI APIs - OpenAI and Anthropic compatible"
+            homepage "https://github.com/if414013/harbangan"
             version "${{ steps.version.outputs.version }}"
             license "AGPL-3.0"
 
             on_macos do
               on_intel do
-                url "https://github.com/if414013/rkgw/releases/download/v#{version}/kiro-gateway-x86_64-apple-darwin.tar.gz"
+                url "https://github.com/if414013/harbangan/releases/download/v#{version}/harbangan-x86_64-apple-darwin.tar.gz"
                 sha256 "${{ steps.checksums.outputs.macos_intel_sha }}"
               end
               on_arm do
-                url "https://github.com/if414013/rkgw/releases/download/v#{version}/kiro-gateway-aarch64-apple-darwin.tar.gz"
+                url "https://github.com/if414013/harbangan/releases/download/v#{version}/harbangan-aarch64-apple-darwin.tar.gz"
                 sha256 "${{ steps.checksums.outputs.macos_arm_sha }}"
               end
             end
 
             on_linux do
               on_intel do
-                url "https://github.com/if414013/rkgw/releases/download/v#{version}/kiro-gateway-x86_64-unknown-linux-gnu.tar.gz"
+                url "https://github.com/if414013/harbangan/releases/download/v#{version}/harbangan-x86_64-unknown-linux-gnu.tar.gz"
                 sha256 "${{ steps.checksums.outputs.linux_intel_sha }}"
               end
               on_arm do
-                url "https://github.com/if414013/rkgw/releases/download/v#{version}/kiro-gateway-aarch64-unknown-linux-gnu.tar.gz"
+                url "https://github.com/if414013/harbangan/releases/download/v#{version}/harbangan-aarch64-unknown-linux-gnu.tar.gz"
                 sha256 "${{ steps.checksums.outputs.linux_arm_sha }}"
               end
             end
 
             def install
-              bin.install "kiro-gateway"
+              bin.install "harbangan"
             end
           end
           FORMULA_EOF
@@ -164,9 +164,9 @@ jobs:
 
           git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/if414013/homebrew-tvps.git tap-repo
 
-          cp kiro-gateway.rb tap-repo/Formula/kiro-gateway.rb
+          cp harbangan.rb tap-repo/Formula/harbangan.rb
 
           cd tap-repo
-          git add Formula/kiro-gateway.rb
-          git commit -m "Update kiro-gateway to ${{ steps.version.outputs.version }}"
+          git add Formula/harbangan.rb
+          git commit -m "Update harbangan to ${{ steps.version.outputs.version }}"
           git push origin main

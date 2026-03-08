@@ -1,6 +1,6 @@
 ---
 name: team-debug
-description: ACH-based debugging — spawns domain investigators to evaluate competing hypotheses across the rkgw stack using formal evidence standards and arbitration. Use when user says 'debug this error', 'why is this failing', 'investigate bug', 'root cause analysis', or 'something is broken'.
+description: ACH-based debugging — spawns domain investigators to evaluate competing hypotheses across the Harbangan stack using formal evidence standards and arbitration. Use when user says 'debug this error', 'why is this failing', 'investigate bug', 'root cause analysis', or 'something is broken'.
 argument-hint: "[error-description] [--scope path] [--hypotheses count]"
 allowed-tools:
   - Bash
@@ -14,9 +14,9 @@ allowed-tools:
 
 # Team Debug — Analysis of Competing Hypotheses
 
-Structured debugging methodology that spawns multiple AI investigators to evaluate competing hypotheses in parallel. Based on the ACH (Analysis of Competing Hypotheses) framework, adapted for the rkgw Gateway stack.
+Structured debugging methodology that spawns multiple AI investigators to evaluate competing hypotheses in parallel. Based on the ACH (Analysis of Competing Hypotheses) framework, adapted for the Harbangan stack.
 
-See `references/hypothesis-testing.md` for templates, decision trees, and rkgw-specific examples.
+See `references/hypothesis-testing.md` for templates, decision trees, and Harbangan-specific examples.
 
 ## Critical Constraints
 
@@ -105,9 +105,9 @@ Every hypothesis must be classified into one of these categories:
 | **Configuration Error** | Missing env var, wrong value, config not persisted to DB | Works in one environment but not another, 500 on startup |
 | **Race Condition** | Concurrent access without proper synchronization, ordering assumption | Intermittent failure, works under low load, fails under high load |
 
-### rkgw-Specific Hypothesis Patterns
+### Harbangan-Specific Hypothesis Patterns
 
-Use these as starting points when generating hypotheses for common rkgw issues:
+Use these as starting points when generating hypotheses for common Harbangan issues:
 
 | Pattern | Category | Key Files |
 |---------|----------|-----------|

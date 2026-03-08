@@ -5,7 +5,7 @@ nav_order: 1
 ---
 
 <div class="hero" markdown="0">
-  <h1>Kiro Gateway</h1>
+  <h1>Harbangan</h1>
   <p class="tagline">
     A multi-user, multi-provider Rust proxy gateway. Use OpenAI and Anthropic client libraries
     with Kiro, GitHub Copilot, and Qwen Coder backends. Per-user auth, content guardrails,
@@ -26,9 +26,22 @@ nav_order: 1
   </div>
 </div>
 
+## The Name
+
+In Batak Toba culture, the *harbangan* is the gate of the traditional house — a threshold between the ordered world of family and community, and the open world beyond. In Batak cosmology, the universe is divided into three realms, and every threshold mirrors that cosmic boundary. To cross a *harbangan* is to move between states of being.
+
+This gateway embodies the same philosophy:
+
+- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and multiple provider backends (Kiro, Copilot, Qwen), translating between OpenAI and Anthropic formats on either side.
+- **Guardian of social order** — The Batak gate enforces *Dalihan Na Tolu*, the three-pillar kinship system that governs who may enter and how. Harbangan enforces multi-user RBAC: Google SSO, per-user API keys, admin/user roles, and domain allowlisting decide what passes through.
+- **Ritual transition** — Crossing a *harbangan* signals a shift in status. Requests crossing this gateway undergo their own transformation: format conversion, content guardrails (CEL rules + AWS Bedrock), and MCP tool injection before reaching the other side.
+- **Openness as moral virtue** — In Batak ethics, a gate that is always open signals generosity and communal spirit. This one is open source, and in proxy-only mode, a single container is all you need to open the gate.
+
+> Further reading on Batak Toba philosophy: [Form and Meaning of Batak Toba House](https://repository.petra.ac.id/18044/1/Publikasi1_03007_4499.pdf) · [Dalihan Na Tolu: Vision of Integrity](https://journalppw.com/index.php/jpsp/article/download/12366/8016/14827) · [Batak Cultural Values](https://ojs.unimal.ac.id/mspr/article/download/10948/4863)
+
 ## How It Works
 
-Kiro Gateway sits between your existing AI client code and multiple provider backends. Send requests in OpenAI or Anthropic format -- the gateway translates them on the fly, handles per-user authentication with role-based access control, applies content guardrails, injects MCP tools, and streams responses back in the format your client expects.
+Harbangan sits between your existing AI client code and multiple provider backends. Send requests in OpenAI or Anthropic format -- the gateway translates them on the fly, handles per-user authentication with role-based access control, applies content guardrails, injects MCP tools, and streams responses back in the format your client expects.
 
 ```mermaid
 flowchart TD
@@ -125,8 +138,8 @@ flowchart TD
 
 ```bash
 # Clone and configure
-git clone https://github.com/if414013/rkgw.git
-cd rkgw
+git clone https://github.com/if414013/harbangan.git
+cd harbangan
 cp .env.example .env
 # Edit .env with your domain, Google OAuth credentials, etc.
 

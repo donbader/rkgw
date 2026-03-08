@@ -60,8 +60,8 @@ Display commits, affected files, and tasks that will be marked incomplete. Do no
 4. If conflict: report, ask user to resolve/abort/skip
 5. Verify after revert:
 ```bash
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo clippy --all-targets && cargo test --lib
-cd /Users/hikennoace/ai-gateway/rkgw/frontend && npm run build && npm run lint
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo clippy --all-targets && cargo test --lib
+cd /Users/hikennoace/ai-gateway/harbangan/frontend && npm run build && npm run lint
 ```
 
 ---

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-# Proxy-only entrypoint for rkgw backend.
+# Proxy-only entrypoint for harbangan backend.
 # Runs the AWS SSO OIDC device code flow if no refresh token exists,
 # caches credentials to /data/tokens.json for reuse across restarts,
 # then launches the gateway binary with the obtained credentials.
@@ -89,7 +89,7 @@ if [ -z "$KIRO_REFRESH_TOKEN" ]; then
         # ── Step 1: Register OIDC client ─────────────────────────────
         echo "→ Registering OIDC client at ${OIDC_BASE}..."
 
-        REGISTER_BODY="{\"clientName\":\"rkgw-proxy\",\"clientType\":\"public\",\"scopes\":[\"codewhisperer:completions\",\"codewhisperer:analysis\",\"codewhisperer:conversations\"],\"grantTypes\":[\"urn:ietf:params:oauth:grant-type:device_code\",\"refresh_token\"]"
+        REGISTER_BODY="{\"clientName\":\"harbangan-proxy\",\"clientType\":\"public\",\"scopes\":[\"codewhisperer:completions\",\"codewhisperer:analysis\",\"codewhisperer:conversations\"],\"grantTypes\":[\"urn:ietf:params:oauth:grant-type:device_code\",\"refresh_token\"]"
 
         if [ -n "$KIRO_SSO_URL" ]; then
             REGISTER_BODY="${REGISTER_BODY},\"issuerUrl\":\"${KIRO_SSO_URL}\""
@@ -194,4 +194,4 @@ if [ -z "$KIRO_REFRESH_TOKEN" ]; then
 fi
 
 echo "→ Starting Kiro Gateway..."
-exec /app/kiro-gateway
+exec /app/harbangan

@@ -1,8 +1,8 @@
 <div align="center">
 
-# rkgw — Rust Kiro Gateway
+# Harbangan
 
-**Multi-user proxy gateway for Kiro API (AWS CodeWhisperer)**
+**Multi-user proxy gateway for AI providers**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
@@ -13,7 +13,18 @@ _A Rust rewrite of [kiro-gateway](https://github.com/jwadow/kiro-gateway) — Us
 
 ---
 
-Kiro Gateway sits between your AI client code and the Kiro API. Send requests in OpenAI or Anthropic format — the gateway translates, handles auth, and streams responses back.
+## Why "Harbangan"?
+
+In Batak Toba culture, the *harbangan* is the gate of the traditional house — but it is far more than a physical structure. It is a threshold between worlds: the ordered, protected space of family and community on one side, and the open, unpredictable world on the other. In Batak cosmology, to cross a threshold is to navigate between states of being.
+
+This gateway embodies the same philosophy:
+
+- **Cosmic boundary** — The *harbangan* separates the three realms of Batak cosmology. This gateway sits at the boundary between your client code and multiple provider backends (Kiro, Copilot, Qwen), translating between OpenAI and Anthropic formats on either side.
+- **Guardian of social order** — The Batak gate enforces *Dalihan Na Tolu*, the three-pillar kinship system that governs who may enter and how. Harbangan enforces multi-user RBAC: Google SSO, per-user API keys, admin/user roles, and domain allowlisting decide what passes through.
+- **Ritual transition** — Crossing a *harbangan* signals a shift in status. Requests crossing this gateway undergo their own transformation: format conversion, content guardrails (CEL rules + AWS Bedrock), and MCP tool injection before reaching the other side.
+- **Openness as moral virtue** — In Batak ethics, a gate that is always open signals generosity and communal spirit. This one is open source, and in proxy-only mode, a single container is all you need to open the gate.
+
+> Further reading on Batak Toba philosophy: [Form and Meaning of Batak Toba House](https://repository.petra.ac.id/18044/1/Publikasi1_03007_4499.pdf) · [Dalihan Na Tolu: Vision of Integrity](https://journalppw.com/index.php/jpsp/article/download/12366/8016/14827) · [Batak Cultural Values](https://ojs.unimal.ac.id/mspr/article/download/10948/4863)
 
 ## Supported Models
 
@@ -41,7 +52,7 @@ Kiro Gateway sits between your AI client code and the Kiro API. Send requests in
 ## Quick Start
 
 ```bash
-git clone https://github.com/if414013/rkgw.git && cd rkgw
+git clone https://github.com/if414013/harbangan.git && cd harbangan
 cp .env.example .env  # edit with your domain, Google OAuth creds
 ./init-certs.sh       # provision TLS
 docker compose up -d  # start all services
@@ -49,20 +60,20 @@ docker compose up -d  # start all services
 
 Open `https://your-domain/_ui/` to complete setup.
 
-> For proxy-only mode (no DB/SSO), see the [Quickstart guide](https://if414013.github.io/rkgw/docs/quickstart).
+> For proxy-only mode (no DB/SSO), see the [Quickstart guide](https://if414013.github.io/harbangan/docs/quickstart).
 
 ## Documentation
 
-📖 **[Full Documentation](https://if414013.github.io/rkgw/)**
+📖 **[Full Documentation](https://if414013.github.io/harbangan/)**
 
-- [Getting Started](https://if414013.github.io/rkgw/docs/getting-started) — Setup walkthrough for both deployment modes
-- [Quickstart](https://if414013.github.io/rkgw/docs/quickstart) — Running in under 5 minutes
-- [Configuration](https://if414013.github.io/rkgw/docs/configuration) — Environment variables and runtime settings
-- [API Reference](https://if414013.github.io/rkgw/docs/api-reference) — Endpoint documentation with examples
-- [Architecture](https://if414013.github.io/rkgw/docs/architecture) — System design and component overview
-- [Client Setup](https://if414013.github.io/rkgw/docs/client-setup) — Claude Code, Zed, OpenCode, and SDK configs
-- [Deployment](https://if414013.github.io/rkgw/docs/deployment) — Production deployment guide
-- [Troubleshooting](https://if414013.github.io/rkgw/docs/troubleshooting) — Common issues and solutions
+- [Getting Started](https://if414013.github.io/harbangan/docs/getting-started) — Setup walkthrough for both deployment modes
+- [Quickstart](https://if414013.github.io/harbangan/docs/quickstart) — Running in under 5 minutes
+- [Configuration](https://if414013.github.io/harbangan/docs/configuration) — Environment variables and runtime settings
+- [API Reference](https://if414013.github.io/harbangan/docs/api-reference) — Endpoint documentation with examples
+- [Architecture](https://if414013.github.io/harbangan/docs/architecture) — System design and component overview
+- [Client Setup](https://if414013.github.io/harbangan/docs/client-setup) — Claude Code, Zed, OpenCode, and SDK configs
+- [Deployment](https://if414013.github.io/harbangan/docs/deployment) — Production deployment guide
+- [Troubleshooting](https://if414013.github.io/harbangan/docs/troubleshooting) — Common issues and solutions
 
 ## License
 
@@ -84,6 +95,6 @@ This project is not affiliated with, endorsed by, or sponsored by Amazon Web Ser
 
 <div align="center">
 
-**[Back to Top](#rkgw--rust-kiro-gateway)**
+**[Back to Top](#harbangan)**
 
 </div>

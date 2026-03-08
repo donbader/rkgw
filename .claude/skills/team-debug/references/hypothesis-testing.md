@@ -1,6 +1,6 @@
 # Hypothesis Testing Reference
 
-Templates, evidence formats, arbitration decision trees, and rkgw-specific debugging patterns for the ACH-based team-debug skill.
+Templates, evidence formats, arbitration decision trees, and Harbangan-specific debugging patterns for the ACH-based team-debug skill.
 
 ---
 
@@ -178,7 +178,7 @@ All investigators reported?
 
 ---
 
-## rkgw Failure Mode Examples
+## Harbangan Failure Mode Examples
 
 ### Logic Error
 
@@ -234,7 +234,7 @@ All investigators reported?
 
 ---
 
-## Common rkgw Debugging Patterns
+## Common Harbangan Debugging Patterns
 
 ### Pattern: Request fails with 401 but API key is valid
 

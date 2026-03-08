@@ -21,7 +21,7 @@ Tracks live under `conductor/tracks/{track-id}/` and contain:
 
 ## 2. Track Types
 
-| Type | When to Use | rkgw Examples |
+| Type | When to Use | Harbangan Examples |
 |------|-------------|---------------|
 | `feature` | New capability or user-facing functionality | Add MCP tool caching, new guardrails rule type, Anthropic vision support |
 | `bug` | Incorrect behavior that needs correction | Streaming parser truncation on large responses, token cache race condition |
@@ -95,7 +95,7 @@ draft → in_progress → completed / abandoned
 
 ---
 
-## 9. Common Track Patterns for rkgw
+## 9. Common Track Patterns for Harbangan
 
 ### Feature Track (Full-Stack)
 

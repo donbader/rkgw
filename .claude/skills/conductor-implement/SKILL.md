@@ -84,18 +84,18 @@ Select all pending tasks in that phase, in order.
 
 ### 4.1 — Git Status
 ```bash
-cd /Users/hikennoace/ai-gateway/rkgw && git status --short
+cd /Users/hikennoace/ai-gateway/harbangan && git status --short
 ```
 - If there are uncommitted changes, warn the user.
 
 ### 4.2 — Branch Check
 Read the expected branch from `metadata.json`.
 ```bash
-cd /Users/hikennoace/ai-gateway/rkgw && git branch --show-current
+cd /Users/hikennoace/ai-gateway/harbangan && git branch --show-current
 ```
 - If the track branch does not exist, create it from `main`:
   ```bash
-  cd /Users/hikennoace/ai-gateway/rkgw && git checkout -b {branch-name} main
+  cd /Users/hikennoace/ai-gateway/harbangan && git checkout -b {branch-name} main
   ```
 
 ### 4.3 — Directory Verification
@@ -136,15 +136,15 @@ Re-read the task description from `plan.md`. Cross-reference with `spec.md` acce
 - Documentation
 
 #### 5A.3 — Implement
-Perform the implementation. All file operations happen within `/Users/hikennoace/ai-gateway/rkgw/`.
+Perform the implementation. All file operations happen within `/Users/hikennoace/ai-gateway/harbangan/`.
 
 #### 5A.4 — Verify
 Run the verification command for the affected service:
 
 | Service | Command |
 |---------|---------|
-| backend | `cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo clippy --all-targets && cargo test --lib` |
-| frontend | `cd /Users/hikennoace/ai-gateway/rkgw/frontend && npm run build && npm run lint` |
+| backend | `cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo clippy --all-targets && cargo test --lib` |
+| frontend | `cd /Users/hikennoace/ai-gateway/harbangan/frontend && npm run build && npm run lint` |
 
 #### 5A.5 — Mark Task Complete
 Change `- [~]` to `- [x]` for the completed task.

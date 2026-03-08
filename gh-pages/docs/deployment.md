@@ -7,7 +7,7 @@ nav_order: 8
 # Deployment Guide
 {: .no_toc }
 
-Production deployment instructions for Kiro Gateway. Covers both Proxy-Only Mode (single container) and Full Deployment (multi-user with TLS).
+Production deployment instructions for Harbangan. Covers both Proxy-Only Mode (single container) and Full Deployment (multi-user with TLS).
 {: .fs-6 .fw-300 }
 
 <details open markdown="block">
@@ -21,7 +21,7 @@ Production deployment instructions for Kiro Gateway. Covers both Proxy-Only Mode
 
 ## Deployment Modes
 
-Kiro Gateway supports two deployment modes:
+Harbangan supports two deployment modes:
 
 - **Proxy-Only Mode** — A single backend container with no database, web UI, or TLS. Uses `docker-compose.gateway.yml`. Best for personal use or quick evaluation.
 - **Full Deployment** — Four containers (backend, PostgreSQL, nginx, certbot) with Google SSO, per-user API keys, web dashboard, and automated TLS. Uses `docker-compose.yml`. Best for teams and production.
@@ -43,7 +43,7 @@ A single container running the Rust backend. No database, no nginx, no certbot. 
 
 | Service | Image | Purpose |
 |:---|:---|:---|
-| `gateway` | `kiro-gateway-backend:latest` (built locally) | Rust API server on configurable port (default 8000) |
+| `gateway` | `harbangan-backend:latest` (built locally) | Rust API server on configurable port (default 8000) |
 
 ### Prerequisites
 
@@ -53,8 +53,8 @@ A single container running the Rust backend. No database, no nginx, no certbot. 
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/if414013/rkgw.git
-cd rkgw
+git clone https://github.com/if414013/harbangan.git
+cd harbangan
 ```
 
 ### Step 2: Configure Environment Variables
@@ -113,7 +113,7 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d
 docker compose -f docker-compose.gateway.yml --env-file .env.proxy up -d --build
 
 # Re-authorize (clear cached credentials)
-docker volume rm rkgw_gateway-data
+docker volume rm harbangan_gateway-data
 docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
 ```
 
@@ -191,8 +191,8 @@ graph LR
 | Service | Image | Purpose |
 |:---|:---|:---|
 | `db` | `postgres:16-alpine` | PostgreSQL database for config, credentials, and user data |
-| `backend` | `kiro-gateway-backend:latest` (built locally) | Rust API server — plain HTTP, internal only |
-| `frontend` | `kiro-gateway-frontend:latest` (built locally) | nginx — serves React SPA, reverse proxies API, terminates TLS |
+| `backend` | `harbangan-backend:latest` (built locally) | Rust API server — plain HTTP, internal only |
+| `frontend` | `harbangan-frontend:latest` (built locally) | nginx — serves React SPA, reverse proxies API, terminates TLS |
 | `certbot` | `certbot/certbot:latest` | Automated Let's Encrypt certificate renewal (12h cycle) |
 
 ---
@@ -209,8 +209,8 @@ graph LR
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/if414013/rkgw.git
-cd rkgw
+git clone https://github.com/if414013/harbangan.git
+cd harbangan
 ```
 
 ## Step 2: Configure Environment Variables
@@ -481,9 +481,9 @@ All services include built-in health checks:
 ```bash
 docker compose ps
 # NAME               SERVICE    STATUS          PORTS
-# rkgw-db-1          db         Up (healthy)    5432/tcp
-# rkgw-backend-1     backend    Up (healthy)    8000/tcp
-# rkgw-frontend-1    frontend   Up (healthy)    0.0.0.0:443->443/tcp, 0.0.0.0:80->80/tcp
+# harbangan-db-1          db         Up (healthy)    5432/tcp
+# harbangan-backend-1     backend    Up (healthy)    8000/tcp
+# harbangan-frontend-1    frontend   Up (healthy)    0.0.0.0:443->443/tcp, 0.0.0.0:80->80/tcp
 ```
 
 ### Web UI metrics

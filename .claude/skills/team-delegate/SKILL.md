@@ -12,7 +12,7 @@ allowed-tools:
 
 # Team Delegate
 
-Assign tasks, send messages, and manage workload across rkgw Gateway team members.
+Assign tasks, send messages, and manage workload across Harbangan team members.
 
 ## Critical Constraints
 

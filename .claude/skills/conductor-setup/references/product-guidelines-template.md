@@ -22,7 +22,7 @@
 | Warning / Caution | {e.g., clear, non-alarmist} | {example message} |
 | Empty State | {e.g., instructive, encouraging} | {example message} |
 
-### rkgw Defaults
+### Harbangan Defaults
 
 > Adapted for a CRT terminal aesthetic and technical developer audience.
 
@@ -67,7 +67,7 @@ Define 2-3 core principles that guide every product decision. Each principle inc
 | {Concrete positive example} | {Concrete anti-pattern} |
 | {Concrete positive example} | {Concrete anti-pattern} |
 
-### rkgw Defaults
+### Harbangan Defaults
 
 - **Transparency over magic**: Show what the gateway is doing (streaming status, token counts, model resolution). Never hide complexity from a technical audience.
 - **Density over whitespace**: The CRT aesthetic rewards information-dense layouts. Prefer tables and compact displays over cards and spacious padding.
@@ -180,7 +180,7 @@ Invalid domain format. Use a fully qualified domain (e.g., example.com). Do not 
 | "Please try again later" | "Kiro API is rate-limited. Retry in 30 seconds or reduce request frequency." |
 | "Invalid input" | "Model ID must be alphanumeric with hyphens (e.g., claude-3-sonnet)" |
 
-### rkgw-Specific Conventions
+### Harbangan-Specific Conventions
 
 - API responses: Use the `ApiError` enum from `backend/src/error.rs`. Every variant maps to an HTTP status code and structured JSON body.
 - Streaming errors: Emit an SSE `error` event with the same three-part structure before closing the stream.

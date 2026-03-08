@@ -1,5 +1,5 @@
 [package]
-name = "kiro-gateway"
+name = "harbangan"
 version = "1.0.8"
 edition = "2021"
 authors = ["Jwadow"]
@@ -108,7 +108,7 @@ codegen-units = 1
 strip = true
 
 [[bin]]
-name = "kiro-gateway"
+name = "harbangan"
 path = "src/main.rs"
 
 [[bin]]

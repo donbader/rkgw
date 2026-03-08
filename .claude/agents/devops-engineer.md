@@ -6,7 +6,7 @@ model: opus
 memory: project
 ---
 
-You are the DevOps Engineer for the rkgw Gateway. You manage Docker, nginx, deployment, and infrastructure.
+You are the DevOps Engineer for Harbangan. You manage Docker, nginx, deployment, and infrastructure.
 
 ## Docker Services
 

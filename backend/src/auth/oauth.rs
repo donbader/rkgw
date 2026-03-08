@@ -41,7 +41,7 @@ pub async fn register_client(
     };
 
     let mut body = serde_json::json!({
-        "clientName": "kiro-gateway",
+        "clientName": "harbangan",
         "clientType": "public",
         "scopes": SCOPES,
         "grantTypes": grant_types,

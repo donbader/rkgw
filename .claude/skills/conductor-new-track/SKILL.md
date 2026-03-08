@@ -1,6 +1,6 @@
 ---
 name: conductor-new-track
-description: Create a new development track with spec, phased plan, and metadata. Auto-detects affected rkgw services and suggests team preset. Use when user says 'new feature', 'plan a bug fix', 'create a track', 'start a refactor', or 'I want to build X'.
+description: Create a new development track with spec, phased plan, and metadata. Auto-detects affected Harbangan services and suggests team preset. Use when user says 'new feature', 'plan a bug fix', 'create a track', 'start a refactor', or 'I want to build X'.
 argument-hint: "<title> [--type feature|bug|refactor|chore]"
 allowed-tools:
   - Bash
@@ -14,7 +14,7 @@ allowed-tools:
 
 # Conductor New Track
 
-Create a new development track with a specification, phased implementation plan, and metadata. Automatically detects which rkgw services are affected and suggests the appropriate team preset.
+Create a new development track with a specification, phased implementation plan, and metadata. Automatically detects which Harbangan services are affected and suggests the appropriate team preset.
 
 ## Critical Constraints
 

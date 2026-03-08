@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-const SCREENSHOT_DIR = '/Users/hikennoace/ai-gateway/rkgw/.playwright-mcp'
+const SCREENSHOT_DIR = '/Users/hikennoace/ai-gateway/harbangan/.playwright-mcp'
 const BASE_URL = 'http://localhost:5173/_ui/'
 
 test.describe('Theme toggle – Light/Dark mode', () => {
@@ -157,7 +157,7 @@ test.describe('Theme toggle – Light/Dark mode', () => {
     // Set light mode via both DOM and localStorage (simulating what ThemeProvider does)
     await page.evaluate(() => {
       document.documentElement.setAttribute('data-theme', 'light')
-      localStorage.setItem('rkgw-theme', 'light')
+      localStorage.setItem('harbangan-theme', 'light')
     })
     await page.waitForTimeout(200)
 
@@ -171,7 +171,7 @@ test.describe('Theme toggle – Light/Dark mode', () => {
     const state = await page.evaluate(() =>
       JSON.stringify({
         theme: document.documentElement.getAttribute('data-theme'),
-        stored: localStorage.getItem('rkgw-theme'),
+        stored: localStorage.getItem('harbangan-theme'),
       })
     )
     const parsed = JSON.parse(state)

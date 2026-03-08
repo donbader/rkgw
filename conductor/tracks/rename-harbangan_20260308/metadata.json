@@ -1,0 +1,17 @@
+{
+  "id": "rename-harbangan_20260308",
+  "title": "Rename rkgw → Harbangan",
+  "type": "refactor",
+  "status": "planned",
+  "preset": "custom-4-parallel",
+  "services": ["backend", "frontend", "infra", "docs"],
+  "agents": ["rust-backend-engineer", "react-frontend-engineer", "devops-engineer", "document-writer"],
+  "branch": "chore/rename-harbangan",
+  "created_at": "2026-03-08T15:10:00.000Z",
+  "updated_at": "2026-03-08T15:10:00.000Z",
+  "phases": {
+    "1": { "name": "Parallel Rename", "status": "pending", "tasks_total": 22, "tasks_done": 0 },
+    "2": { "name": "Final Verification", "status": "pending", "tasks_total": 5, "tasks_done": 0 }
+  },
+  "commits": []
+}

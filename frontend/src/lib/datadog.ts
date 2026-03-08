@@ -3,7 +3,7 @@ import { datadogRum } from '@datadog/browser-rum'
 const clientToken = import.meta.env.VITE_DD_CLIENT_TOKEN as string | undefined
 const applicationId = import.meta.env.VITE_DD_APPLICATION_ID as string | undefined
 const env = (import.meta.env.VITE_DD_ENV as string | undefined) ?? 'production'
-const service = (import.meta.env.VITE_DD_SERVICE as string | undefined) ?? 'rkgw-frontend'
+const service = (import.meta.env.VITE_DD_SERVICE as string | undefined) ?? 'harbangan-frontend'
 // VITE_DD_SITE allows EU/Gov deployments to route RUM data to the correct region
 // (e.g. datadoghq.eu, ap1.datadoghq.com). Defaults to US1.
 const site = (import.meta.env.VITE_DD_SITE as string | undefined) ?? 'datadoghq.com'
