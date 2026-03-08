@@ -35,6 +35,7 @@ services:
       GITHUB_COPILOT_CLIENT_ID: "${GITHUB_COPILOT_CLIENT_ID:-}"
       GITHUB_COPILOT_CLIENT_SECRET: "${GITHUB_COPILOT_CLIENT_SECRET:-}"
       GITHUB_COPILOT_CALLBACK_URL: "${GITHUB_COPILOT_CALLBACK_URL:-}"
+      QWEN_OAUTH_CLIENT_ID: "${QWEN_OAUTH_CLIENT_ID:-}"
     labels:
       com.datadoghq.ad.logs: '[{"source": "rust", "service": "rkgw-backend"}]'
       com.datadoghq.tags.env: "${DD_ENV:-production}"

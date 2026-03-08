@@ -14,9 +14,12 @@ Navigation hub for project context.
 
 ## Active Tracks
 
-- [Copilot Provider Support](./tracks/copilot-provider-support_20260308/) — In progress (26/35 tasks)
+No active tracks.
 
 ## Archived Tracks
+
+- [Qwen Coder Provider](./tracks/qwen-coder-provider_20260308/) — Completed 2026-03-08
+- [Copilot Provider Support](./tracks/_archive/copilot-provider-support_20260308/) — Completed 2026-03-08
 
 - [Light Mode Toggle](./tracks/_archive/light-mode-toggle_20260307/) — Completed 2026-03-07
 - [Centralize E2E Tests](./tracks/_archive/centralize-e2e-tests_20260307/) — Completed 2026-03-07

@@ -293,6 +293,11 @@ impl TokenExchanger for HttpTokenExchanger {
         provider: &str,
         refresh_token: &str,
     ) -> Result<TokenExchangeResult, ApiError> {
+        // Qwen uses its own token endpoint with JSON body
+        if provider == "qwen" {
+            return self.refresh_qwen_token(refresh_token).await;
+        }
+
         let config = get_provider_config(provider)?;
 
         let mut params = vec![
@@ -346,6 +351,61 @@ impl TokenExchanger for HttpTokenExchanger {
 }
 
 impl HttpTokenExchanger {
+    /// Refresh a Qwen token via the Qwen OAuth token endpoint.
+    async fn refresh_qwen_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<TokenExchangeResult, ApiError> {
+        let client_id = std::env::var("QWEN_OAUTH_CLIENT_ID")
+            .unwrap_or_else(|_| "f0304373b74a44d2b584a3fb70ca9e56".to_string());
+
+        let resp = self
+            .client
+            .post("https://chat.qwen.ai/api/v1/oauth2/token")
+            .json(&serde_json::json!({
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+            }))
+            .send()
+            .await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Qwen token refresh failed: {}", e)))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ApiError::Internal(anyhow::anyhow!(
+                "Qwen token refresh returned {}: {}",
+                status,
+                body
+            )));
+        }
+
+        let body: serde_json::Value = resp.json().await.map_err(|e| {
+            ApiError::Internal(anyhow::anyhow!(
+                "Failed to parse Qwen refresh response: {}",
+                e
+            ))
+        })?;
+
+        let access_token = body["access_token"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let new_refresh = body["refresh_token"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let expires_in = body["expires_in"].as_i64().unwrap_or(3600);
+
+        Ok(TokenExchangeResult {
+            access_token,
+            refresh_token: new_refresh,
+            expires_in,
+            email: String::new(),
+        })
+    }
+
     /// Extract email from token response (Anthropic), id_token JWT (OpenAI), or userinfo endpoint (Gemini).
     async fn extract_email(
         &self,

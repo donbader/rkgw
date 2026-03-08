@@ -32,6 +32,7 @@ use crate::providers::anthropic::AnthropicProvider;
 use crate::providers::copilot::CopilotProvider;
 use crate::providers::gemini::GeminiProvider;
 use crate::providers::openai::OpenAIProvider;
+use crate::providers::qwen::QwenProvider;
 use crate::providers::registry::ProviderRegistry;
 use crate::providers::types::{ProviderContext, ProviderCredentials, ProviderId};
 use crate::resolver::ModelResolver;
@@ -108,6 +109,8 @@ pub struct AppState {
     pub gemini_provider: Arc<GeminiProvider>,
     /// Direct Copilot API provider
     pub copilot_provider: Arc<CopilotProvider>,
+    /// Direct Qwen API provider
+    pub qwen_provider: Arc<QwenProvider>,
     // Provider OAuth relay
     /// Pending provider OAuth relay states (separate from Google SSO oauth_pending)
     pub provider_oauth_pending: Arc<DashMap<String, ProviderOAuthPendingState>>,
@@ -116,6 +119,9 @@ pub struct AppState {
     // Copilot
     /// user_id → (copilot_token, base_url, cached_at)
     pub copilot_token_cache: Arc<DashMap<Uuid, (String, String, std::time::Instant)>>,
+    // Qwen device flow
+    /// Pending Qwen device flow states: device_code → QwenDevicePending
+    pub qwen_device_pending: crate::web_ui::qwen_auth::QwenDevicePendingMap,
 }
 
 impl AppState {
@@ -439,6 +445,7 @@ async fn handle_direct_openai(
             ProviderId::Anthropic => state.anthropic_provider.stream_openai(&ctx, req).await?,
             ProviderId::Gemini => state.gemini_provider.stream_openai(&ctx, req).await?,
             ProviderId::Copilot => state.copilot_provider.stream_openai(&ctx, req).await?,
+            ProviderId::Qwen => state.qwen_provider.stream_openai(&ctx, req).await?,
             ProviderId::Kiro => unreachable!(),
         };
         let byte_stream = stream.map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
@@ -455,10 +462,11 @@ async fn handle_direct_openai(
             ProviderId::Anthropic => state.anthropic_provider.execute_openai(&ctx, req).await?,
             ProviderId::Gemini => state.gemini_provider.execute_openai(&ctx, req).await?,
             ProviderId::Copilot => state.copilot_provider.execute_openai(&ctx, req).await?,
+            ProviderId::Qwen => state.qwen_provider.execute_openai(&ctx, req).await?,
             ProviderId::Kiro => unreachable!(),
         };
         let body = match provider_id {
-            ProviderId::OpenAI | ProviderId::Copilot => resp.body,
+            ProviderId::OpenAI | ProviderId::Copilot | ProviderId::Qwen => resp.body,
             ProviderId::Anthropic => anthropic_response_to_openai(&req.model, &resp.body),
             ProviderId::Gemini => serde_json::to_value(
                 crate::converters::gemini_to_openai::gemini_to_openai(&req.model, &resp.body),
@@ -496,6 +504,7 @@ async fn handle_direct_anthropic(
             ProviderId::Anthropic => state.anthropic_provider.stream_anthropic(&ctx, req).await?,
             ProviderId::Gemini => state.gemini_provider.stream_anthropic(&ctx, req).await?,
             ProviderId::Copilot => state.copilot_provider.stream_anthropic(&ctx, req).await?,
+            ProviderId::Qwen => state.qwen_provider.stream_anthropic(&ctx, req).await?,
             ProviderId::Kiro => unreachable!(),
         };
         let byte_stream = stream.map(|r| r.map_err(|e| std::io::Error::other(e.to_string())));
@@ -517,11 +526,12 @@ async fn handle_direct_anthropic(
             }
             ProviderId::Gemini => state.gemini_provider.execute_anthropic(&ctx, req).await?,
             ProviderId::Copilot => state.copilot_provider.execute_anthropic(&ctx, req).await?,
+            ProviderId::Qwen => state.qwen_provider.execute_anthropic(&ctx, req).await?,
             ProviderId::Kiro => unreachable!(),
         };
         let body = match provider_id {
             ProviderId::Anthropic => resp.body,
-            ProviderId::OpenAI | ProviderId::Copilot => {
+            ProviderId::OpenAI | ProviderId::Copilot | ProviderId::Qwen => {
                 openai_response_to_anthropic(&req.model, &resp.body)
             }
             ProviderId::Gemini => serde_json::to_value(
@@ -1183,9 +1193,11 @@ mod tests {
             openai_provider: Arc::new(OpenAIProvider::new()),
             gemini_provider: Arc::new(GeminiProvider::new()),
             copilot_provider: Arc::new(CopilotProvider::new()),
+            qwen_provider: Arc::new(QwenProvider::new()),
             provider_oauth_pending: Arc::new(DashMap::new()),
             token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
             copilot_token_cache: Arc::new(DashMap::new()),
+            qwen_device_pending: Arc::new(DashMap::new()),
         }
     }
 

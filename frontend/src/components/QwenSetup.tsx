@@ -1,18 +1,18 @@
 import { useState, useEffect } from 'react'
-import { apiFetch, apiPost, apiDelete, pollDeviceCode } from '../lib/api'
-import type { KiroStatus, DeviceCodeResponse } from '../lib/api'
+import { getQwenStatus, startQwenDeviceFlow, pollQwenDeviceCode, disconnectQwen } from '../lib/api'
+import type { QwenStatus, QwenDeviceCodeResponse } from '../lib/api'
 import { DeviceCodeDisplay } from './DeviceCodeDisplay'
 import { useToast } from './Toast'
 
-export function KiroSetup() {
+export function QwenSetup() {
   const { showToast } = useToast()
-  const [status, setStatus] = useState<KiroStatus | null>(null)
+  const [status, setStatus] = useState<QwenStatus | null>(null)
   const [loading, setLoading] = useState(true)
-  const [deviceAuth, setDeviceAuth] = useState<DeviceCodeResponse | null>(null)
+  const [deviceAuth, setDeviceAuth] = useState<QwenDeviceCodeResponse | null>(null)
   const [starting, setStarting] = useState(false)
 
   function loadStatus() {
-    apiFetch<KiroStatus>('/kiro/status')
+    getQwenStatus()
       .then(s => { setStatus(s); setLoading(false) })
       .catch(() => setLoading(false))
   }
@@ -22,11 +22,11 @@ export function KiroSetup() {
   async function handleStart() {
     setStarting(true)
     try {
-      const result = await apiPost<DeviceCodeResponse>('/kiro/setup')
+      const result = await startQwenDeviceFlow()
       setDeviceAuth(result)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
-      showToast('Failed to start Kiro setup: ' + msg, 'error')
+      showToast('Failed to start Qwen setup: ' + msg, 'error')
     } finally {
       setStarting(false)
     }
@@ -34,7 +34,7 @@ export function KiroSetup() {
 
   function handleComplete() {
     setDeviceAuth(null)
-    showToast('Kiro token connected successfully', 'success')
+    showToast('Qwen Coder connected successfully', 'success')
     loadStatus()
   }
 
@@ -43,35 +43,35 @@ export function KiroSetup() {
     setDeviceAuth(null)
   }
 
-  async function handleRemove() {
+  async function handleDisconnect() {
     try {
-      await apiDelete('/kiro/token')
-      showToast('Kiro token removed', 'success')
+      await disconnectQwen()
+      showToast('Qwen Coder disconnected', 'success')
       loadStatus()
     } catch (err) {
       showToast(
-        'Failed to remove token: ' + (err instanceof Error ? err.message : 'Unknown error'),
+        'Failed to disconnect: ' + (err instanceof Error ? err.message : 'Unknown error'),
         'error',
       )
     }
   }
 
   if (loading) {
-    return <div className="skeleton skeleton-block" role="status" aria-label="Loading Kiro status" />
+    return <div className="skeleton skeleton-block" role="status" aria-label="Loading Qwen status" />
   }
 
   if (deviceAuth) {
     return (
       <div className="card">
         <div className="card-header">
-          <span className="card-title">{'> '}kiro setup</span>
+          <span className="card-title">{'> '}qwen setup</span>
         </div>
         <DeviceCodeDisplay
           userCode={deviceAuth.user_code}
           verificationUri={deviceAuth.verification_uri}
-          verificationUriComplete={deviceAuth.verification_uri_complete}
+          verificationUriComplete={deviceAuth.verification_uri_complete ?? deviceAuth.verification_uri}
           deviceCode={deviceAuth.device_code}
-          pollFn={pollDeviceCode}
+          pollFn={pollQwenDeviceCode}
           onComplete={handleComplete}
           onError={handleError}
           onCancel={() => setDeviceAuth(null)}
@@ -83,14 +83,14 @@ export function KiroSetup() {
   return (
     <div className="card">
       <div className="card-header">
-        <span className="card-title">{'> '}kiro connection</span>
-        {status?.has_token && !status.expired && (
+        <span className="card-title">{'> '}qwen coder</span>
+        {status?.connected && !status.expired && (
           <span className="tag-ok">CONNECTED</span>
         )}
-        {status?.has_token && status.expired && (
+        {status?.connected && status.expired && (
           <span className="tag-warn">EXPIRED</span>
         )}
-        {!status?.has_token && (
+        {!status?.connected && (
           <span className="tag-err">NOT CONNECTED</span>
         )}
       </div>
@@ -101,15 +101,15 @@ export function KiroSetup() {
           onClick={handleStart}
           disabled={starting}
         >
-          {status?.has_token ? '$ reconnect' : '$ setup kiro token'}
+          {status?.connected ? '$ reconnect' : '$ connect qwen'}
         </button>
-        {status?.has_token && (
+        {status?.connected && (
           <button
             className="device-code-cancel"
             type="button"
-            onClick={handleRemove}
+            onClick={handleDisconnect}
           >
-            remove
+            disconnect
           </button>
         )}
       </div>

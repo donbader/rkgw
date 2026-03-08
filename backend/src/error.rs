@@ -133,6 +133,14 @@ pub enum ApiError {
     #[allow(dead_code)]
     CopilotTokenExpired,
 
+    /// Rate limited — too many requests for a provider credential
+    #[error("Rate limited: retry after {retry_after_secs}s")]
+    #[allow(dead_code)]
+    RateLimited {
+        provider: String,
+        retry_after_secs: u64,
+    },
+
     /// Internal server error
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
@@ -245,6 +253,24 @@ impl IntoResponse for ApiError {
                 "copilot_token_expired",
                 "Copilot token expired. Re-connect at /_ui/profile".to_string(),
             ),
+            ApiError::RateLimited {
+                ref provider,
+                retry_after_secs,
+            } => {
+                let body = Json(json!({
+                    "error": {
+                        "message": format!("Rate limited for provider '{}'. Retry after {}s.", provider, retry_after_secs),
+                        "type": "rate_limited",
+                        "retry_after": retry_after_secs,
+                    }
+                }));
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [("retry-after", retry_after_secs.to_string())],
+                    body,
+                )
+                    .into_response();
+            }
             ApiError::Internal(err) => {
                 // Log internal errors
                 tracing::error!("Internal error: {:?}", err);
@@ -443,5 +469,16 @@ mod tests {
         let err = ApiError::LastAdmin;
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limited_returns_429_with_retry_after() {
+        let err = ApiError::RateLimited {
+            provider: "qwen".to_string(),
+            retry_after_secs: 42,
+        };
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers().get("retry-after").unwrap(), "42");
     }
 }
