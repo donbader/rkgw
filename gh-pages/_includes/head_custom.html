@@ -271,13 +271,16 @@ mermaid.initialize({
 var mermaidSources = new Map();
 
 async function renderMermaid() {
+  var counter = 0;
+
+  // Case 1: code blocks still in <pre><code class="language-mermaid">
   var codeBlocks = document.querySelectorAll('code.language-mermaid');
   for (var i = 0; i < codeBlocks.length; i++) {
     var code = codeBlocks[i];
     var pre = code.parentElement;
     var container = pre.parentElement;
     var source = code.textContent;
-    var id = 'mermaid-' + i;
+    var id = 'mermaid-' + counter++;
 
     mermaidSources.set(id, source);
 
@@ -286,6 +289,20 @@ async function renderMermaid() {
     div.id = id;
     div.textContent = source;
     container.replaceWith(div);
+  }
+
+  // Case 2: theme already converted to div.mermaid but failed to render (no SVG)
+  var existingDivs = document.querySelectorAll('div.mermaid');
+  for (var j = 0; j < existingDivs.length; j++) {
+    var el = existingDivs[j];
+    if (el.querySelector('svg')) continue; // already rendered
+    if (el.id && mermaidSources.has(el.id)) continue; // already handled above
+    var source = el.textContent.trim();
+    if (!source) continue;
+    var id = el.id || ('mermaid-' + counter++);
+    el.id = id;
+    mermaidSources.set(id, source);
+    el.textContent = source; // reset content for clean render
   }
 
   if (mermaidSources.size > 0) {
