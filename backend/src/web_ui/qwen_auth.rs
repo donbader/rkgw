@@ -31,6 +31,9 @@ const QWEN_TOKEN_URL: &str = "https://chat.qwen.ai/api/v1/oauth2/token";
 /// Default OAuth client ID (public, no secret needed for device flow).
 const DEFAULT_CLIENT_ID: &str = "f0304373b74a44d2b584a3fb70ca9e56";
 
+/// OAuth scope for Qwen device flow.
+const QWEN_OAUTH_SCOPE: &str = "openid profile email model.completion";
+
 // ── Pending State ────────────────────────────────────────────────────
 
 /// In-memory pending state for a Qwen device flow.
@@ -122,7 +125,10 @@ fn pkce_challenge(verifier: &str) -> String {
 }
 
 fn get_client_id() -> String {
-    std::env::var("QWEN_OAUTH_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string())
+    std::env::var("QWEN_OAUTH_CLIENT_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string())
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────
@@ -151,11 +157,13 @@ async fn qwen_device_code(
     let http = reqwest::Client::new();
     let resp = http
         .post(QWEN_DEVICE_CODE_URL)
-        .json(&json!({
-            "client_id": client_id,
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-        }))
+        .header("accept", "application/json")
+        .form(&[
+            ("client_id", client_id.as_str()),
+            ("scope", QWEN_OAUTH_SCOPE),
+            ("code_challenge", code_challenge.as_str()),
+            ("code_challenge_method", "S256"),
+        ])
         .send()
         .await
         .map_err(|e| {
@@ -270,12 +278,13 @@ async fn qwen_device_poll(
 
     let resp = http
         .post(QWEN_TOKEN_URL)
-        .json(&json!({
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-            "device_code": params.device_code,
-            "client_id": client_id,
-            "code_verifier": pending.code_verifier,
-        }))
+        .header("accept", "application/json")
+        .form(&[
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ("client_id", client_id.as_str()),
+            ("device_code", params.device_code.as_str()),
+            ("code_verifier", pending.code_verifier.as_str()),
+        ])
         .send()
         .await
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("Qwen token poll failed: {}", e)))?;
