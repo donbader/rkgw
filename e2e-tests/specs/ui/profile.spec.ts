@@ -58,6 +58,21 @@ test.describe('Profile page', () => {
     await expect(statusBadge).toBeVisible()
   })
 
+  test('QWEN CODER section renders with status badge', async ({ page }) => {
+    await navigateTo(page, '/profile')
+
+    const qwenHeader = page.locator('h2.section-header', { hasText: 'QWEN CODER' })
+    await expect(qwenHeader).toBeVisible()
+
+    const qwenTitle = page.locator(Card.title, { hasText: 'qwen coder' })
+    await expect(qwenTitle).toBeVisible()
+
+    // Status badge should be one of: tag-ok (CONNECTED), tag-warn (EXPIRED), tag-err (NOT CONNECTED)
+    const qwenSection = qwenHeader.locator('~ div').first()
+    const statusBadge = qwenSection.locator(`${Status.ok}, ${Status.warn}, ${Status.err}`).first()
+    await expect(statusBadge).toBeVisible()
+  })
+
   test('PROVIDERS section renders', async ({ page }) => {
     await navigateTo(page, '/profile')
 

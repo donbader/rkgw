@@ -64,7 +64,7 @@ async fn get_priority(
 
 // ── POST /providers/priority ─────────────────────────────────────
 
-const VALID_PROVIDERS: &[&str] = &["kiro", "anthropic", "openai", "gemini", "copilot"];
+const VALID_PROVIDERS: &[&str] = &["kiro", "anthropic", "openai", "gemini", "copilot", "qwen"];
 
 async fn update_priority(
     State(state): State<AppState>,
@@ -196,6 +196,7 @@ mod tests {
         assert!(VALID_PROVIDERS.contains(&"openai"));
         assert!(VALID_PROVIDERS.contains(&"gemini"));
         assert!(VALID_PROVIDERS.contains(&"copilot"));
+        assert!(VALID_PROVIDERS.contains(&"qwen"));
         assert!(!VALID_PROVIDERS.contains(&"azure"));
     }
 
@@ -204,5 +205,49 @@ mod tests {
         let json = r#"{"priorities":[]}"#;
         let req: UpdatePriorityRequest = serde_json::from_str(json).unwrap();
         assert!(req.priorities.is_empty());
+    }
+
+    // ── 6.7: Qwen in VALID_PROVIDERS ────────────────────────────────
+
+    #[test]
+    fn test_valid_providers_count() {
+        // Ensure we have exactly 6 providers (kiro, anthropic, openai, gemini, copilot, qwen)
+        assert_eq!(VALID_PROVIDERS.len(), 6);
+    }
+
+    #[test]
+    fn test_qwen_priority_serialization() {
+        let p = ProviderPriority {
+            provider_id: "qwen".to_string(),
+            priority: 3,
+        };
+        let json = serde_json::to_value(&p).unwrap();
+        assert_eq!(json["provider_id"], "qwen");
+        assert_eq!(json["priority"], 3);
+    }
+
+    #[test]
+    fn test_qwen_priority_deserialization() {
+        let json = r#"{"provider_id":"qwen","priority":1}"#;
+        let p: ProviderPriority = serde_json::from_str(json).unwrap();
+        assert_eq!(p.provider_id, "qwen");
+        assert_eq!(p.priority, 1);
+    }
+
+    #[test]
+    fn test_update_priority_request_with_qwen() {
+        let json = r#"{"priorities":[{"provider_id":"qwen","priority":1},{"provider_id":"copilot","priority":2},{"provider_id":"kiro","priority":3}]}"#;
+        let req: UpdatePriorityRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.priorities.len(), 3);
+        assert_eq!(req.priorities[0].provider_id, "qwen");
+        assert_eq!(req.priorities[0].priority, 1);
+    }
+
+    #[test]
+    fn test_invalid_provider_not_in_valid_list() {
+        // Verify that made-up providers are rejected
+        assert!(!VALID_PROVIDERS.contains(&"qwen2"));
+        assert!(!VALID_PROVIDERS.contains(&"qwq"));
+        assert!(!VALID_PROVIDERS.contains(&"dashscope"));
     }
 }

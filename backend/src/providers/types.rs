@@ -17,6 +17,8 @@ pub enum ProviderId {
     Gemini,
     #[serde(rename = "copilot")]
     Copilot,
+    #[serde(rename = "qwen")]
+    Qwen,
 }
 
 impl ProviderId {
@@ -28,6 +30,7 @@ impl ProviderId {
             ProviderId::OpenAI => "openai",
             ProviderId::Gemini => "gemini",
             ProviderId::Copilot => "copilot",
+            ProviderId::Qwen => "qwen",
         }
     }
 }
@@ -48,6 +51,7 @@ impl std::str::FromStr for ProviderId {
             "openai" => Ok(ProviderId::OpenAI),
             "gemini" => Ok(ProviderId::Gemini),
             "copilot" => Ok(ProviderId::Copilot),
+            "qwen" => Ok(ProviderId::Qwen),
             other => Err(format!("Unknown provider: {}", other)),
         }
     }
@@ -94,6 +98,7 @@ mod tests {
         assert_eq!(ProviderId::OpenAI.as_str(), "openai");
         assert_eq!(ProviderId::Gemini.as_str(), "gemini");
         assert_eq!(ProviderId::Copilot.as_str(), "copilot");
+        assert_eq!(ProviderId::Qwen.as_str(), "qwen");
     }
 
     #[test]
@@ -101,6 +106,7 @@ mod tests {
         assert_eq!(ProviderId::Anthropic.to_string(), "anthropic");
         assert_eq!(ProviderId::OpenAI.to_string(), "openai");
         assert_eq!(ProviderId::Copilot.to_string(), "copilot");
+        assert_eq!(ProviderId::Qwen.to_string(), "qwen");
     }
 
     #[test]
@@ -117,6 +123,7 @@ mod tests {
             ProviderId::from_str("copilot").unwrap(),
             ProviderId::Copilot
         );
+        assert_eq!(ProviderId::from_str("qwen").unwrap(), ProviderId::Qwen);
         assert!(ProviderId::from_str("unknown").is_err());
     }
 
@@ -129,6 +136,10 @@ mod tests {
         let id = ProviderId::Copilot;
         let json = serde_json::to_string(&id).unwrap();
         assert_eq!(json, "\"copilot\"");
+
+        let id = ProviderId::Qwen;
+        let json = serde_json::to_string(&id).unwrap();
+        assert_eq!(json, "\"qwen\"");
     }
 
     #[test]
@@ -138,6 +149,9 @@ mod tests {
 
         let id: ProviderId = serde_json::from_str("\"copilot\"").unwrap();
         assert_eq!(id, ProviderId::Copilot);
+
+        let id: ProviderId = serde_json::from_str("\"qwen\"").unwrap();
+        assert_eq!(id, ProviderId::Qwen);
     }
 
     #[test]
@@ -160,6 +174,7 @@ mod tests {
             ProviderId::OpenAI,
             ProviderId::Gemini,
             ProviderId::Copilot,
+            ProviderId::Qwen,
         ] {
             let json = serde_json::to_string(&id).unwrap();
             let back: ProviderId = serde_json::from_str(&json).unwrap();
@@ -205,5 +220,82 @@ mod tests {
         let err = ProviderId::from_str("azure").unwrap_err();
         assert!(err.contains("Unknown provider"));
         assert!(err.contains("azure"));
+    }
+
+    // ── 6.7: Qwen ProviderId additional tests ───────────────────────
+
+    #[test]
+    fn test_provider_id_qwen_as_str() {
+        assert_eq!(ProviderId::Qwen.as_str(), "qwen");
+    }
+
+    #[test]
+    fn test_provider_id_qwen_display() {
+        assert_eq!(format!("{}", ProviderId::Qwen), "qwen");
+    }
+
+    #[test]
+    fn test_provider_id_qwen_from_str() {
+        use std::str::FromStr;
+        assert_eq!(ProviderId::from_str("qwen").unwrap(), ProviderId::Qwen);
+    }
+
+    #[test]
+    fn test_provider_id_qwen_serde_round_trip() {
+        let json = serde_json::to_string(&ProviderId::Qwen).unwrap();
+        assert_eq!(json, "\"qwen\"");
+        let back: ProviderId = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, ProviderId::Qwen);
+    }
+
+    #[test]
+    fn test_provider_id_qwen_hash_eq() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(ProviderId::Qwen);
+        set.insert(ProviderId::Qwen);
+        assert_eq!(set.len(), 1);
+        set.insert(ProviderId::Copilot);
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_provider_id_qwen_not_equal_to_others() {
+        assert_ne!(ProviderId::Qwen, ProviderId::Kiro);
+        assert_ne!(ProviderId::Qwen, ProviderId::Anthropic);
+        assert_ne!(ProviderId::Qwen, ProviderId::OpenAI);
+        assert_ne!(ProviderId::Qwen, ProviderId::Gemini);
+        assert_ne!(ProviderId::Qwen, ProviderId::Copilot);
+    }
+
+    #[test]
+    fn test_provider_credentials_qwen_with_base_url() {
+        let creds = ProviderCredentials {
+            provider: ProviderId::Qwen,
+            access_token: "qwen-tok-abc".to_string(),
+            base_url: Some("https://custom.qwen.ai/api".to_string()),
+        };
+        let cloned = creds.clone();
+        assert_eq!(cloned.provider, ProviderId::Qwen);
+        assert_eq!(cloned.access_token, "qwen-tok-abc");
+        assert_eq!(cloned.base_url.unwrap(), "https://custom.qwen.ai/api");
+    }
+
+    #[test]
+    fn test_provider_credentials_qwen_no_base_url() {
+        let creds = ProviderCredentials {
+            provider: ProviderId::Qwen,
+            access_token: "qwen-tok".to_string(),
+            base_url: None,
+        };
+        assert!(creds.base_url.is_none());
+    }
+
+    #[test]
+    fn test_provider_id_qwen_from_str_case_sensitive() {
+        use std::str::FromStr;
+        // "Qwen" (capitalized) should fail — only lowercase "qwen" is valid
+        assert!(ProviderId::from_str("Qwen").is_err());
+        assert!(ProviderId::from_str("QWEN").is_err());
     }
 }

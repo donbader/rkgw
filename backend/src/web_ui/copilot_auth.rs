@@ -656,10 +656,7 @@ mod tests {
 
     #[test]
     fn test_base_url_for_plan_empty_string() {
-        assert_eq!(
-            base_url_for_plan(""),
-            "https://api.githubcopilot.com"
-        );
+        assert_eq!(base_url_for_plan(""), "https://api.githubcopilot.com");
     }
 
     #[test]

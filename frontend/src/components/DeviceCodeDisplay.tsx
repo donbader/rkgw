@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { pollDeviceCode } from '../lib/api'
+import { useState, useEffect, useRef } from 'react'
+import type { DevicePollResponse } from '../lib/api'
 
 interface DeviceCodeDisplayProps {
   userCode: string
   verificationUri: string
   verificationUriComplete: string
   deviceCode: string
+  pollFn: (deviceCode: string) => Promise<DevicePollResponse>
   onComplete: () => void
   onError: (message: string) => void
   onCancel: () => void
@@ -16,48 +17,59 @@ export function DeviceCodeDisplay({
   verificationUri,
   verificationUriComplete,
   deviceCode,
+  pollFn,
   onComplete,
   onError,
   onCancel,
 }: DeviceCodeDisplayProps) {
   const [copied, setCopied] = useState(false)
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pollIntervalRef = useRef(5)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const intervalRef = useRef(5)
   const mountedRef = useRef(true)
+  const callbacksRef = useRef({ pollFn, onComplete, onError })
 
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) clearTimeout(pollRef.current)
-  }, [])
+  useEffect(() => {
+    callbacksRef.current = { pollFn, onComplete, onError }
+  })
 
-  const poll = useCallback(async () => {
-    if (!mountedRef.current) return
-    try {
-      const result = await pollDeviceCode(deviceCode)
-      if (!mountedRef.current) return
-      if (result.status === 'success') {
-        stopPolling()
-        onComplete()
-      } else if (result.status === 'slow_down') {
-        pollIntervalRef.current = 10
-        pollRef.current = setTimeout(poll, pollIntervalRef.current * 1000)
-      } else {
-        pollRef.current = setTimeout(poll, pollIntervalRef.current * 1000)
-      }
-    } catch (err) {
-      if (!mountedRef.current) return
-      stopPolling()
-      onError(err instanceof Error ? err.message : 'Polling failed')
-    }
-  }, [deviceCode, stopPolling, onComplete, onError])
+  function stopPolling() {
+    if (timerRef.current) clearTimeout(timerRef.current)
+  }
 
   useEffect(() => {
     mountedRef.current = true
-    pollRef.current = setTimeout(poll, pollIntervalRef.current * 1000)
+
+    function schedulePoll() {
+      timerRef.current = setTimeout(async () => {
+        if (!mountedRef.current) return
+        const { pollFn: fn, onComplete: done, onError: fail } = callbacksRef.current
+        try {
+          const result = await fn(deviceCode)
+          if (!mountedRef.current) return
+          if (result.status === 'success') {
+            done()
+          } else if (result.status === 'expired') {
+            fail(result.message || 'Device code expired. Please try again.')
+          } else if (result.status === 'denied') {
+            fail(result.message || 'Authorization was denied.')
+          } else {
+            if (result.status === 'slow_down') intervalRef.current = 10
+            schedulePoll()
+          }
+        } catch (err) {
+          if (!mountedRef.current) return
+          fail(err instanceof Error ? err.message : 'Polling failed')
+        }
+      }, intervalRef.current * 1000)
+    }
+
+    schedulePoll()
+
     return () => {
       mountedRef.current = false
-      stopPolling()
+      if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [poll, stopPolling])
+  }, [deviceCode])
 
   async function copyCode() {
     try {
@@ -95,7 +107,7 @@ export function DeviceCodeDisplay({
       </a>
       <span className="device-code-uri">{verificationUri}</span>
 
-      <div className="device-code-polling">
+      <div className="device-code-polling" aria-live="polite">
         <span className="cursor" />
         polling...
       </div>

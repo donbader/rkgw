@@ -222,9 +222,11 @@ async fn main() -> Result<()> {
         openai_provider: Arc::new(providers::openai::OpenAIProvider::new()),
         gemini_provider: Arc::new(providers::gemini::GeminiProvider::new()),
         copilot_provider: Arc::new(providers::copilot::CopilotProvider::new()),
+        qwen_provider: Arc::new(providers::qwen::QwenProvider::new()),
         provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
         token_exchanger: Arc::new(web_ui::provider_oauth::HttpTokenExchanger::new()),
         copilot_token_cache: Arc::new(dashmap::DashMap::new()),
+        qwen_device_pending: Arc::new(dashmap::DashMap::new()),
     };
 
     // ── Guardrails (skip in proxy-only mode) ────────────────────────

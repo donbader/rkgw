@@ -179,6 +179,17 @@ impl ConfigDb {
             self.migrate_to_v9().await?;
         }
 
+        // Re-read max version after v9 migration
+        let max_version: Option<i32> =
+            sqlx::query_scalar("SELECT MAX(version) FROM schema_version")
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(Some(1));
+
+        if max_version.unwrap_or(1) < 10 {
+            self.migrate_to_v10().await?;
+        }
+
         Ok(())
     }
 
@@ -1616,6 +1627,77 @@ impl ConfigDb {
         Ok(())
     }
 
+    /// Version 10 migration: Add 'qwen' to user_provider_tokens CHECK constraint,
+    /// add base_url column, and update model_routes CHECK.
+    async fn migrate_to_v10(&self) -> Result<()> {
+        tracing::info!("Running database migration to version 10 (qwen provider support)...");
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .context("Failed to begin v10 migration transaction")?;
+
+        // Drop old CHECK constraint on user_provider_tokens.provider_id
+        sqlx::query(
+            "ALTER TABLE user_provider_tokens
+             DROP CONSTRAINT IF EXISTS user_provider_tokens_provider_id_check",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to drop old user_provider_tokens CHECK constraint")?;
+
+        // Add updated CHECK constraint including 'qwen'
+        sqlx::query(
+            "ALTER TABLE user_provider_tokens
+             ADD CONSTRAINT user_provider_tokens_provider_id_check
+             CHECK (provider_id IN ('anthropic', 'gemini', 'openai', 'qwen'))",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to add updated user_provider_tokens CHECK constraint")?;
+
+        // Add base_url column to user_provider_tokens (for Qwen resource_url)
+        sqlx::query(
+            "ALTER TABLE user_provider_tokens
+             ADD COLUMN IF NOT EXISTS base_url TEXT",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to add base_url column to user_provider_tokens")?;
+
+        // Update model_routes CHECK to include 'qwen'
+        sqlx::query(
+            "ALTER TABLE model_routes
+             DROP CONSTRAINT IF EXISTS model_routes_provider_id_check",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to drop old model_routes CHECK constraint")?;
+
+        sqlx::query(
+            "ALTER TABLE model_routes
+             ADD CONSTRAINT model_routes_provider_id_check
+             CHECK (provider_id IN ('kiro', 'anthropic', 'openai', 'gemini', 'copilot', 'qwen'))",
+        )
+        .execute(&mut *tx)
+        .await
+        .context("Failed to add updated model_routes CHECK constraint")?;
+
+        sqlx::query("INSERT INTO schema_version (version) VALUES ($1)")
+            .bind(10_i32)
+            .execute(&mut *tx)
+            .await
+            .context("Failed to record schema version 10")?;
+
+        tx.commit()
+            .await
+            .context("Failed to commit v10 migration")?;
+
+        tracing::info!("Database migration to version 10 complete");
+        Ok(())
+    }
+
     // ── Copilot Tokens ────────────────────────────────────────────
 
     /// Upsert a user's Copilot tokens (GitHub OAuth + Copilot bearer).
@@ -1993,6 +2075,47 @@ impl ConfigDb {
                 .context("Failed to delete user provider token")?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Set the base_url for a user's provider token (e.g. Qwen resource_url).
+    #[allow(dead_code)]
+    pub async fn set_user_provider_base_url(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+        base_url: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE user_provider_tokens
+             SET base_url = $3, updated_at = NOW()
+             WHERE user_id = $1 AND provider_id = $2",
+        )
+        .bind(user_id)
+        .bind(provider_id)
+        .bind(base_url)
+        .execute(&self.pool)
+        .await
+        .context("Failed to set user provider base_url")?;
+        Ok(())
+    }
+
+    /// Get the base_url for a user's provider token.
+    #[allow(dead_code)]
+    pub async fn get_user_provider_base_url(
+        &self,
+        user_id: Uuid,
+        provider_id: &str,
+    ) -> Result<Option<String>> {
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT base_url FROM user_provider_tokens
+             WHERE user_id = $1 AND provider_id = $2",
+        )
+        .bind(user_id)
+        .bind(provider_id)
+        .fetch_optional(&self.pool)
+        .await
+        .context("Failed to get user provider base_url")?;
+        Ok(row.and_then(|(url,)| url))
     }
 
     /// Get all providers for which a user has OAuth tokens.

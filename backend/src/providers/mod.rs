@@ -3,6 +3,7 @@ pub mod copilot;
 pub mod gemini;
 pub mod kiro;
 pub mod openai;
+pub mod qwen;
 pub mod registry;
 pub mod traits;
 pub mod types;

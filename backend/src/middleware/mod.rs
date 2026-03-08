@@ -329,9 +329,11 @@ mod tests {
             openai_provider: Arc::new(crate::providers::openai::OpenAIProvider::new()),
             gemini_provider: Arc::new(crate::providers::gemini::GeminiProvider::new()),
             copilot_provider: Arc::new(crate::providers::copilot::CopilotProvider::new()),
+            qwen_provider: Arc::new(crate::providers::qwen::QwenProvider::new()),
             provider_oauth_pending: Arc::new(dashmap::DashMap::new()),
             token_exchanger: Arc::new(crate::web_ui::provider_oauth::HttpTokenExchanger::new()),
             copilot_token_cache: Arc::new(dashmap::DashMap::new()),
+            qwen_device_pending: Arc::new(dashmap::DashMap::new()),
         }
     }
 
