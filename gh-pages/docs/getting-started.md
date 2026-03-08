@@ -7,7 +7,7 @@ nav_order: 2
 # Getting Started
 {: .no_toc }
 
-This guide walks you through setting up Kiro Gateway for the first time. By the end, you will have a working gateway that translates OpenAI and Anthropic API calls into Kiro (AWS CodeWhisperer) backend requests.
+This guide walks you through setting up Harbangan for the first time. By the end, you will have a working gateway that translates OpenAI and Anthropic API calls into Kiro (AWS CodeWhisperer) backend requests.
 
 <details open markdown="block">
   <summary>Table of contents</summary>
@@ -18,9 +18,9 @@ This guide walks you through setting up Kiro Gateway for the first time. By the 
 
 ---
 
-## What is Kiro Gateway?
+## What is Harbangan?
 
-Kiro Gateway is a proxy server that exposes industry-standard OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) endpoints, translating every request into the Kiro API format used by AWS CodeWhisperer. Any tool or library that speaks the OpenAI or Anthropic protocol can use Kiro models without modification.
+Harbangan is a proxy server that exposes industry-standard OpenAI (`/v1/chat/completions`) and Anthropic (`/v1/messages`) endpoints, translating every request into the Kiro API format used by AWS CodeWhisperer. Any tool or library that speaks the OpenAI or Anthropic protocol can use Kiro models without modification.
 
 Key capabilities:
 
@@ -41,7 +41,7 @@ Key capabilities:
 
 ## Choose Your Deployment Mode
 
-Kiro Gateway supports two deployment modes:
+Harbangan supports two deployment modes:
 
 | | Proxy-Only Mode | Full Deployment |
 |:---|:---|:---|
@@ -72,8 +72,8 @@ You also need an **AWS Builder ID** (free) or **Identity Center** (pro) account 
 ### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/if414013/rkgw.git
-cd rkgw
+git clone https://github.com/if414013/harbangan.git
+cd harbangan
 ```
 
 ### Step 2: Configure environment variables
@@ -153,8 +153,8 @@ The Full Deployment runs via docker-compose with four services: PostgreSQL, Rust
 ### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/if414013/rkgw.git
-cd rkgw
+git clone https://github.com/if414013/harbangan.git
+cd harbangan
 ```
 
 ### Step 2: Configure environment variables

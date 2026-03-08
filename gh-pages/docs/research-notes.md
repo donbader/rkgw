@@ -71,7 +71,7 @@ The CodeWhisperer API is defined in two service model files (`bearer-token-servi
 
 No shape in either service definition contains `cache_control`, `cache_creation_input_tokens`, `cache_read_input_tokens`, or any similar field.
 
-### Impact on rkgw
+### Impact on Harbangan
 
 The gateway accepts requests in both OpenAI and Anthropic formats and converts them to Kiro format. When an Anthropic-format request includes `cache_control` annotations:
 

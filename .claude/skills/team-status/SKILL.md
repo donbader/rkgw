@@ -9,7 +9,7 @@ allowed-tools:
 
 # Team Status
 
-Monitor agent team members, their roles, and current task status for rkgw Gateway teams.
+Monitor agent team members, their roles, and current task status for Harbangan teams.
 
 ## Critical Constraints
 
@@ -34,7 +34,7 @@ cat ~/.claude/teams/{team-name}/config.json
 
 Also check conductor tracks:
 ```bash
-cat /Users/hikennoace/ai-gateway/rkgw/conductor/tracks.md 2>/dev/null
+cat /Users/hikennoace/ai-gateway/harbangan/conductor/tracks.md 2>/dev/null
 ```
 
 ## Step 3: Check Agent Processes

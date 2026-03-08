@@ -25,7 +25,7 @@ description: Reference guide for team composition patterns, file ownership rules
 
 **One owner per file. No exceptions.**
 
-### rkgw Ownership Examples
+### Harbangan Ownership Examples
 
 | File / Area | Owner | Rationale |
 |-------------|-------|-----------|
@@ -71,7 +71,7 @@ Only for: blocking issues affecting multiple agents, architecture changes, track
 
 ## 4. Task Coordination Strategies
 
-### Dependency Chain (rkgw)
+### Dependency Chain (Harbangan)
 
 ```
 Backend Types/Models
@@ -117,7 +117,7 @@ interface Metrics { totalRequests: number; avgLatencyMs: number; }
 
 ---
 
-## 5. rkgw Team Presets
+## 5. Harbangan Team Presets
 
 | Preset | Agents | Use When |
 |--------|--------|----------|
@@ -147,7 +147,7 @@ Phase 1: Shared infrastructure (horizontal). Phase 2: Feature slices (vertical).
 | Team size | 1-2 | 3+ | 3-5 |
 | Coordination | Low | High | Medium |
 | Time to first deliverable | Fast | Slow | Medium |
-| Typical rkgw use | Bug fix | Large refactor | New feature |
+| Typical Harbangan use | Bug fix | Large refactor | New feature |
 
 ---
 
@@ -191,5 +191,5 @@ Only spawn agents when their tasks become unblocked:
 ## References
 
 - [Messaging Patterns](references/messaging-patterns.md) — 8 structured message templates for inter-agent communication (task assignment, blocker reports, review findings, etc.)
-- [Dependency Graphs](references/dependency-graphs.md) — 5 task dependency patterns (independent, sequential, diamond, fork-join, pipeline) with rkgw-specific examples
-- [Merge Strategies](references/merge-strategies.md) — 3 integration patterns (direct, sub-branch, trunk-based) with rkgw conflict prevention rules for backend/frontend parallel work
+- [Dependency Graphs](references/dependency-graphs.md) — 5 task dependency patterns (independent, sequential, diamond, fork-join, pipeline) with Harbangan-specific examples
+- [Merge Strategies](references/merge-strategies.md) — 3 integration patterns (direct, sub-branch, trunk-based) with Harbangan conflict prevention rules for backend/frontend parallel work

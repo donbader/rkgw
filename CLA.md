@@ -1,6 +1,6 @@
 # Contributor License Agreement (CLA)
 
-**rkgw (Rust Kiro Gateway)**
+**Harbangan**
 
 Version 1.0 — Effective Date: January 2026
 
@@ -8,7 +8,7 @@ Version 1.0 — Effective Date: January 2026
 
 ## Introduction
 
-Thank you for your interest in contributing to **rkgw** (the "Project"), a Rust rewrite of [kiro-gateway](https://github.com/jwadow/kiro-gateway). This Contributor License Agreement ("Agreement") documents the rights granted by contributors to the Maintainer.
+Thank you for your interest in contributing to **Harbangan** (the "Project"), a Rust rewrite of [kiro-gateway](https://github.com/jwadow/kiro-gateway). This Contributor License Agreement ("Agreement") documents the rights granted by contributors to the Maintainer.
 
 By submitting a Contribution to this Project, you accept and agree to the following terms and conditions for your present and future Contributions.
 

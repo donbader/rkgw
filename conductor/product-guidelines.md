@@ -1,4 +1,4 @@
-# Product Guidelines - rkgw
+# Product Guidelines - Harbangan
 
 ## Voice and Tone
 

@@ -1,4 +1,4 @@
-# Rust Style Guide - rkgw Backend
+# Rust Style Guide - Harbangan Backend
 
 ## Formatting
 

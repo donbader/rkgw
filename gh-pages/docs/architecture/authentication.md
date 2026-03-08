@@ -99,7 +99,7 @@ On subsequent restarts:
 To force re-authorization, remove the Docker volume:
 
 ```bash
-docker volume rm rkgw_gateway-data
+docker volume rm harbangan_gateway-data
 ```
 
 ---

@@ -19,7 +19,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: kiro-gateway-backend:latest
+    image: harbangan-backend:latest
     restart: on-failure:5
     entrypoint: ["/app/entrypoint.sh"]
     ports:
@@ -38,9 +38,9 @@ services:
       GITHUB_COPILOT_CLIENT_SECRET: "${GITHUB_COPILOT_CLIENT_SECRET:-}"
       GITHUB_COPILOT_CALLBACK_URL: "${GITHUB_COPILOT_CALLBACK_URL:-}"
     labels:
-      com.datadoghq.ad.logs: '[{"source": "rust", "service": "rkgw-gateway"}]'
+      com.datadoghq.ad.logs: '[{"source": "rust", "service": "harbangan-gateway"}]'
       com.datadoghq.tags.env: "${DD_ENV:-production}"
-      com.datadoghq.tags.service: "rkgw-gateway"
+      com.datadoghq.tags.service: "harbangan-gateway"
     volumes:
       - gateway-data:/data
     deploy:

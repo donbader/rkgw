@@ -11,7 +11,7 @@ allowed-tools:
 
 # Conductor Status
 
-Display the current status of the rkgw Gateway conductor orchestration layer. Shows active tracks, implementation progress, and active agent teams.
+Display the current status of the Harbangan conductor orchestration layer. Shows active tracks, implementation progress, and active agent teams.
 
 ## Critical Constraints
 
@@ -46,7 +46,7 @@ If conductor is not initialized, suggest running `conductor-setup`.
 Parse `conductor/tracks.md`, enrich with `metadata.json` for each track, display:
 
 ```
-rkgw Gateway — Conductor Status
+Harbangan — Conductor Status
 ================================
 
 Active Tracks:
@@ -74,7 +74,7 @@ Scan `~/.claude/teams/` for active team configurations. Display members, roles, 
 
 Combine all outputs plus recent git activity:
 ```bash
-cd /Users/hikennoace/ai-gateway/rkgw && git log --oneline --since="24 hours ago" --all --grep="TRACK-"
+cd /Users/hikennoace/ai-gateway/harbangan && git log --oneline --since="24 hours ago" --all --grep="TRACK-"
 ```
 
 ---

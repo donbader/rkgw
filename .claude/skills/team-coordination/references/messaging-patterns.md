@@ -1,6 +1,6 @@
 # Messaging Pattern Templates
 
-Ready-to-use message templates for common rkgw team communication scenarios. Use these structured formats for clear, actionable inter-agent messages.
+Ready-to-use message templates for common Harbangan team communication scenarios. Use these structured formats for clear, actionable inter-agent messages.
 
 ## 1. Task Assignment
 
@@ -22,7 +22,7 @@ Interface contract:
 Let me know if you have questions or blockers.
 ```
 
-**rkgw example** (scrum-master to rust-backend-engineer):
+**Harbangan example** (scrum-master to rust-backend-engineer):
 ```
 You've been assigned task #3: Add MCP health check endpoint.
 
@@ -53,7 +53,7 @@ Exported from {file}:
 You can now import these in your owned files. The contract matches what we agreed on.
 ```
 
-**rkgw example** (rust-backend-engineer to react-frontend-engineer):
+**Harbangan example** (rust-backend-engineer to react-frontend-engineer):
 ```
 My side of the guardrails-config interface is complete.
 
@@ -79,7 +79,7 @@ Options:
 Waiting for your guidance.
 ```
 
-**rkgw example** (react-frontend-engineer to scrum-master):
+**Harbangan example** (react-frontend-engineer to scrum-master):
 ```
 I'm blocked on task #5: MCP server management page.
 
@@ -109,7 +109,7 @@ Integration notes:
 Ready for next assignment.
 ```
 
-**rkgw example** (rust-backend-engineer to scrum-master):
+**Harbangan example** (rust-backend-engineer to scrum-master):
 ```
 Task #2 complete: Per-user Kiro token refresh
 
@@ -141,7 +141,7 @@ Top finding: {brief description of most important finding}
 Full findings attached to task #{id}.
 ```
 
-**rkgw example** (backend-qa to scrum-master):
+**Harbangan example** (backend-qa to scrum-master):
 ```
 Review complete for converters/openai_to_kiro.rs (correctness).
 
@@ -175,7 +175,7 @@ Key evidence:
 Full report attached to task #{id}.
 ```
 
-**rkgw example** (rust-backend-engineer to scrum-master):
+**Harbangan example** (rust-backend-engineer to scrum-master):
 ```
 Investigation complete for hypothesis: SSE stream drops on large responses
 due to nginx proxy_buffering.
@@ -222,7 +222,7 @@ Constraints:
 Refer to {reference doc or code path} for details.
 ```
 
-**rkgw example** (scrum-master to devops-engineer):
+**Harbangan example** (scrum-master to devops-engineer):
 ```
 Guidance for devops-engineer on cert renewal fix:
 

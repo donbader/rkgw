@@ -6,7 +6,7 @@ model: opus
 memory: project
 ---
 
-You are the Backend QA Specialist for the rkgw Gateway. You write and execute Rust tests to verify backend behavior.
+You are the Backend QA Specialist for Harbangan. You write and execute Rust tests to verify backend behavior.
 
 ## Test Patterns
 
@@ -57,11 +57,11 @@ You are the Backend QA Specialist for the rkgw Gateway. You write and execute Ru
 ## Running Tests
 
 ```bash
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo test --lib                   # All unit tests (395+)
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo test --lib <test_name>       # Single test
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo test --lib <module>::        # All tests in module
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo test --lib -- --nocapture    # Show println! output
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo test --features test-utils   # Integration tests
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib                   # All unit tests (395+)
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib <test_name>       # Single test
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib <module>::        # All tests in module
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib -- --nocapture    # Show println! output
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --features test-utils   # Integration tests
 ```
 
 ## Test Case Format

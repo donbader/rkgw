@@ -19,7 +19,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: kiro-gateway-backend:latest
+    image: harbangan-backend:latest
     restart: on-failure:5
     sysctls:
       - net.ipv6.conf.all.disable_ipv6=1
@@ -37,9 +37,9 @@ services:
       GITHUB_COPILOT_CALLBACK_URL: "${GITHUB_COPILOT_CALLBACK_URL:-}"
       QWEN_OAUTH_CLIENT_ID: "${QWEN_OAUTH_CLIENT_ID:-}"
     labels:
-      com.datadoghq.ad.logs: '[{"source": "rust", "service": "rkgw-backend"}]'
+      com.datadoghq.ad.logs: '[{"source": "rust", "service": "harbangan-backend"}]'
       com.datadoghq.tags.env: "${DD_ENV:-production}"
-      com.datadoghq.tags.service: "rkgw-backend"
+      com.datadoghq.tags.service: "harbangan-backend"
     depends_on:
       db:
         condition: service_healthy
@@ -56,7 +56,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: kiro-gateway-frontend:latest
+    image: harbangan-frontend:latest
     restart: unless-stopped
     ports:
       - "5173:5173"
@@ -64,7 +64,7 @@ services:
       VITE_DD_CLIENT_TOKEN: ${VITE_DD_CLIENT_TOKEN:-}
       VITE_DD_APPLICATION_ID: ${VITE_DD_APPLICATION_ID:-}
       VITE_DD_ENV: ${VITE_DD_ENV:-production}
-      VITE_DD_SERVICE: ${VITE_DD_SERVICE:-rkgw-frontend}
+      VITE_DD_SERVICE: ${VITE_DD_SERVICE:-harbangan-frontend}
       VITE_DD_SITE: ${VITE_DD_SITE:-datadoghq.com}
     volumes:
       - ./frontend/src:/app/src

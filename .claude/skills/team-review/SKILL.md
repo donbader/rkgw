@@ -39,9 +39,9 @@ Refer to `references/review-dimensions.md` for detailed per-dimension checklists
 
 1. Determine target type:
    - **File/Directory**: Use as-is for review scope
-   - **Git diff range**: `git -C /Users/hikennoace/ai-gateway/rkgw diff {range} --name-only`
+   - **Git diff range**: `git -C /Users/hikennoace/ai-gateway/harbangan diff {range} --name-only`
    - **PR number**: `gh pr diff {number} --name-only`
-   - **Default** (no target): `git -C /Users/hikennoace/ai-gateway/rkgw diff main...HEAD --name-only`
+   - **Default** (no target): `git -C /Users/hikennoace/ai-gateway/harbangan diff main...HEAD --name-only`
 2. Collect full diff content for distribution to reviewers
 3. Display review scope: "{N} files to review across {M} dimensions"
 
@@ -88,7 +88,7 @@ Each dimension reviewer draws on domain expertise from the appropriate agent:
 | Testing       | backend-qa                  | frontend-qa           |
 | Accessibility | react-frontend-engineer     | --                    |
 
-### rkgw Codebase Context for Reviewers
+### Harbangan Codebase Context for Reviewers
 
 Provide each reviewer with relevant context so they know where to look:
 
@@ -139,10 +139,10 @@ Provide each reviewer with relevant context so they know where to look:
 Run automated checks to validate the codebase state:
 
 ```bash
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo clippy --all-targets 2>&1 | tail -20
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo test --lib 2>&1 | tail -5
-cd /Users/hikennoace/ai-gateway/rkgw/frontend && npm run build 2>&1 | tail -5
-cd /Users/hikennoace/ai-gateway/rkgw/frontend && npm run lint 2>&1 | tail -5
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo clippy --all-targets 2>&1 | tail -20
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib 2>&1 | tail -5
+cd /Users/hikennoace/ai-gateway/harbangan/frontend && npm run build 2>&1 | tail -5
+cd /Users/hikennoace/ai-gateway/harbangan/frontend && npm run lint 2>&1 | tail -5
 ```
 
 ## Phase 7: Report

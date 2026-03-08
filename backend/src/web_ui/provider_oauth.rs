@@ -715,7 +715,7 @@ async fn relay_script(
 
     let script = format!(
         r#"#!/bin/sh
-# rkgw provider relay helper — runs on your machine, relays OAuth code to rkgw
+# harbangan provider relay helper — runs on your machine, relays OAuth code to harbangan
 AUTH_URL="{auth_url}"
 RELAY_URL="{relay_url}"
 RELAY_TOKEN="{relay_token}"

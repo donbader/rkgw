@@ -7,7 +7,7 @@ nav_order: 9
 # Troubleshooting
 {: .no_toc }
 
-Common issues, error messages, and their solutions when running Kiro Gateway.
+Common issues, error messages, and their solutions when running Harbangan.
 {: .fs-6 .fw-300 }
 
 <details open markdown="block">
@@ -439,7 +439,7 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
 
 **Solutions:**
 - Check logs for "Cached credentials valid" — if present, the gateway is reusing existing credentials and no device code flow is needed
-- If credentials are stale, clear them: `docker volume rm rkgw_gateway-data`
+- If credentials are stale, clear them: `docker volume rm harbangan_gateway-data`
 - Then restart: `docker compose -f docker-compose.gateway.yml --env-file .env.proxy up`
 
 ### "OIDC client registration failed"
@@ -469,7 +469,7 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gatew
 **Solutions:**
 1. Clear the credential cache:
    ```bash
-   docker volume rm rkgw_gateway-data
+   docker volume rm harbangan_gateway-data
    ```
 2. Restart the gateway to trigger a fresh device code flow:
    ```bash
@@ -494,7 +494,7 @@ docker compose -f docker-compose.gateway.yml --env-file .env.proxy restart gatew
 - **Identity Center (pro):** Set `KIRO_SSO_URL=https://your-org.awsapps.com/start`
 - After changing, clear credentials and restart:
   ```bash
-  docker volume rm rkgw_gateway-data
+  docker volume rm harbangan_gateway-data
   docker compose -f docker-compose.gateway.yml --env-file .env.proxy up
   ```
 
@@ -694,7 +694,7 @@ docker compose logs -f --timestamps --tail=100 backend
 
 If you can't resolve an issue:
 
-1. Check the [GitHub Issues](https://github.com/if414013/rkgw/issues) for known problems
+1. Check the [GitHub Issues](https://github.com/if414013/harbangan/issues) for known problems
 2. Collect diagnostic information:
    ```bash
    # Proxy-Only Mode

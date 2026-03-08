@@ -1,6 +1,6 @@
 # .claude/ — AI Workflow Infrastructure
 
-This directory contains the multi-agent workflow system for the rkgw Gateway. See [README.md](README.md) for full details.
+This directory contains the multi-agent workflow system for Harbangan. See [README.md](README.md) for full details.
 
 ## Structure
 

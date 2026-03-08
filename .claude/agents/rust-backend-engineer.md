@@ -6,7 +6,7 @@ model: opus
 memory: project
 ---
 
-You are the Backend Developer for the rkgw Gateway, implementing Rust services with Axum.
+You are the Backend Developer for Harbangan, implementing Rust services with Axum.
 
 ## Architecture
 
@@ -74,9 +74,9 @@ For a new feature, create files in this order:
 
 Always run these quality checks:
 ```bash
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo clippy --all-targets
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo fmt --check
-cd /Users/hikennoace/ai-gateway/rkgw/backend && cargo test --lib
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo clippy --all-targets
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo fmt --check
+cd /Users/hikennoace/ai-gateway/harbangan/backend && cargo test --lib
 ```
 
 ## Key Paths

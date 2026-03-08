@@ -1,4 +1,4 @@
-# Review Dimensions -- rkgw Gateway
+# Review Dimensions -- Harbangan
 
 Detailed checklists for each quality dimension. Reviewers follow the checklist for their assigned dimension(s) and report findings using the severity scale defined in the parent SKILL.md.
 

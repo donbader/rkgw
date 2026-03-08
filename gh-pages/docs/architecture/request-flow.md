@@ -468,11 +468,11 @@ OTLP metrics are exported alongside traces. Key collection points:
 
 | Metric | Collected at | Dimensions |
 |:---|:---|:---|
-| `rkgw.requests.total` | `RequestGuard` drop | `model`, `user`, `status` |
-| `rkgw.request.duration_ms` | `RequestGuard` drop | `model`, `user` |
-| `rkgw.errors.total` | `MetricsCollector::record_error` | `model`, `error_type` |
-| `rkgw.tokens.input` | After token counting (Step 9) | `model`, `user` |
-| `rkgw.tokens.output` | `StreamingMetricsTracker` drop | `model`, `user` |
+| `harbangan.requests.total` | `RequestGuard` drop | `model`, `user`, `status` |
+| `harbangan.request.duration_ms` | `RequestGuard` drop | `model`, `user` |
+| `harbangan.errors.total` | `MetricsCollector::record_error` | `model`, `error_type` |
+| `harbangan.tokens.input` | After token counting (Step 9) | `model`, `user` |
+| `harbangan.tokens.output` | `StreamingMetricsTracker` drop | `model`, `user` |
 
 ### Log correlation
 

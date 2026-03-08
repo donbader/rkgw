@@ -7,7 +7,7 @@ nav_order: 3
 # Quickstart
 {: .no_toc }
 
-Get Kiro Gateway running and make your first API call in under 5 minutes using Docker. Choose the mode that fits your needs:
+Get Harbangan running and make your first API call in under 5 minutes using Docker. Choose the mode that fits your needs:
 
 - **Proxy-Only Mode** — Single container, single API key, no database or web UI. Best for personal use or quick evaluation.
 - **Full Deployment** — Multi-user with Google SSO, per-user API keys, web dashboard, and TLS. Best for teams.
@@ -28,8 +28,8 @@ A single container with no PostgreSQL, nginx, or Google SSO. Authenticates via a
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/if414013/rkgw.git
-cd rkgw
+git clone https://github.com/if414013/harbangan.git
+cd harbangan
 ```
 
 Create `.env.proxy`:
@@ -85,8 +85,8 @@ Multi-user mode with PostgreSQL, Google SSO, per-user API keys, web dashboard, a
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/if414013/rkgw.git
-cd rkgw
+git clone https://github.com/if414013/harbangan.git
+cd harbangan
 cp .env.example .env
 ```
 

@@ -1,4 +1,4 @@
-# TypeScript Style Guide - rkgw Frontend
+# TypeScript Style Guide - Harbangan Frontend
 
 ## Tooling
 

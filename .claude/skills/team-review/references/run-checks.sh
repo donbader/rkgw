@@ -76,7 +76,7 @@ if [[ ! -d "$PROJECT_ROOT/backend" ]] || [[ ! -d "$PROJECT_ROOT/frontend" ]]; th
 fi
 
 echo "${BOLD}================================================================${RESET}"
-echo "${BOLD} rkgw quality checks${RESET}"
+echo "${BOLD} Harbangan quality checks${RESET}"
 echo "${BOLD}================================================================${RESET}"
 echo ""
 

@@ -7,7 +7,7 @@ nav_order: 4
 # Configuration Reference
 {: .no_toc }
 
-Complete reference for all Kiro Gateway configuration options. Configuration varies by deployment mode.
+Complete reference for all Harbangan configuration options. Configuration varies by deployment mode.
 
 <details open markdown="block">
   <summary>Table of contents</summary>
@@ -20,7 +20,7 @@ Complete reference for all Kiro Gateway configuration options. Configuration var
 
 ## Configuration Model
 
-Kiro Gateway has two deployment modes with different configuration models:
+Harbangan has two deployment modes with different configuration models:
 
 - **Proxy-Only Mode** (`docker-compose.gateway.yml`) — All configuration via environment variables in `.env.proxy`. No database or Web UI.
 - **Full Deployment** (`docker-compose.yml`) — Two-tier model: bootstrap settings via environment variables in `.env`, plus runtime settings via the Web UI (persisted in PostgreSQL).
@@ -59,7 +59,7 @@ Set these in `.env.proxy` and pass via `--env-file .env.proxy` when running `doc
 ### Example `.env.proxy`
 
 ```bash
-# Proxy-Only Mode — Kiro Gateway
+# Proxy-Only Mode — Harbangan
 PROXY_API_KEY=your-secret-api-key
 KIRO_REGION=us-east-1
 
@@ -150,7 +150,7 @@ The gateway uses PKCE + OpenID Connect for the SSO flow. Session cookies (`kgw_s
 
 ## Authentication
 
-Kiro Gateway uses two separate authentication systems:
+Harbangan uses two separate authentication systems:
 
 ### API key auth (for `/v1/*` proxy endpoints)
 
@@ -236,7 +236,7 @@ Every configuration change is logged with:
 ## Example `.env` File (Full Deployment)
 
 ```bash
-# Kiro Gateway — Full Deployment Configuration
+# Harbangan — Full Deployment Configuration
 # Copy to .env and fill in your values.
 
 # Domain for TLS certificates (Let's Encrypt via certbot)
@@ -294,7 +294,7 @@ These are **build-time** variables baked into the JavaScript bundle. They must b
 | `VITE_DD_CLIENT_TOKEN` | Yes (for RUM) | | Browser RUM client token from Datadog. |
 | `VITE_DD_APPLICATION_ID` | Yes (for RUM) | | Browser RUM application ID from Datadog. |
 | `VITE_DD_ENV` | No | | RUM environment tag (e.g. `production`). |
-| `VITE_DD_SERVICE` | No | `rkgw-frontend` | RUM service name. |
+| `VITE_DD_SERVICE` | No | `harbangan-frontend` | RUM service name. |
 
 If `VITE_DD_CLIENT_TOKEN` or `VITE_DD_APPLICATION_ID` are empty at build time, the RUM SDK is not initialized and no browser data is sent.
 

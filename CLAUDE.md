@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Structure
 
 ```
-rkgw/
+harbangan/
 ├── backend/                    # Rust API server (Axum 0.7 + Tokio)
 ├── frontend/                   # React 19 SPA (Vite 7 + TypeScript 5.9), served by jonasal/nginx-certbot
 ├── e2e-tests/                  # Playwright E2E tests (API + browser)

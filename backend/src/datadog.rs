@@ -27,7 +27,7 @@
 //! Call [`init_otel_metrics`] to initialise a `SdkMeterProvider` that exports
 //! metrics via OTLP-HTTP to the Datadog Agent.  When `Some` is returned, the
 //! global OTel meter provider is already set — use
-//! `opentelemetry::global::meter("kiro-gateway")` to obtain a `Meter`.
+//! `opentelemetry::global::meter("harbangan")` to obtain a `Meter`.
 //!
 //! # Shutdown
 //!
@@ -41,7 +41,7 @@
 //! | `DD_AGENT_HOST`   | *unset* (skip) | Datadog Agent hostname/IP                |
 //! | `DD_AGENT_PORT`   | `8126`         | Datadog Agent trace port                 |
 //! | `DD_OTLP_PORT`    | `4318`         | Datadog Agent OTLP HTTP port             |
-//! | `DD_SERVICE`      | `kiro-gateway` | APM service name                         |
+//! | `DD_SERVICE`      | `harbangan`    | APM service name                         |
 //! | `DD_ENV`          | *unset*        | Deployment environment tag               |
 //! | `DD_VERSION`      | *unset*        | Service version tag                      |
 
@@ -142,7 +142,7 @@ where
         .and_then(|p| p.parse().ok())
         .filter(|&p: &u16| p > 0)
         .unwrap_or(8126);
-    let service_name = std::env::var("DD_SERVICE").unwrap_or_else(|_| "kiro-gateway".to_string());
+    let service_name = std::env::var("DD_SERVICE").unwrap_or_else(|_| "harbangan".to_string());
     let agent_endpoint = format!("http://{agent_host}:{agent_port}");
 
     match build_trace_pipeline(&service_name, &agent_endpoint) {
@@ -185,7 +185,7 @@ where
 /// Returns `Some(provider)` when `DD_AGENT_HOST` is configured and the
 /// pipeline builds successfully. As a side effect the OTel global meter
 /// provider is set, so callers can subsequently call
-/// `opentelemetry::global::meter("kiro-gateway")`.
+/// `opentelemetry::global::meter("harbangan")`.
 ///
 /// The caller must hold the returned provider for the lifetime of the
 /// application and pass it to [`shutdown`] to flush pending metric batches.

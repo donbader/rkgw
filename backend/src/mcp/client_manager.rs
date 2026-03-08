@@ -301,7 +301,7 @@ impl ClientManager {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
                 "clientInfo": {
-                    "name": "kiro-gateway",
+                    "name": "harbangan",
                     "version": "1.0"
                 }
             })),
