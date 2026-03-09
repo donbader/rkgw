@@ -2051,6 +2051,21 @@ impl ConfigDb {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Update a model's display_name.
+    #[allow(dead_code)]
+    pub async fn update_model_display_name(&self, id: Uuid, display_name: &str) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE model_registry SET display_name = $1, updated_at = NOW() WHERE id = $2",
+        )
+        .bind(display_name)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .context("Failed to update model display_name")?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Remove all models for a given provider.
     #[allow(dead_code)]
     pub async fn clear_registry_by_provider(&self, provider_id: &str) -> Result<u64> {
