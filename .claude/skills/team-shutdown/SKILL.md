@@ -62,12 +62,6 @@ Unless `--keep-config`:
 rm -rf ~/.claude/teams/{team-name}/
 ```
 
-### Conductor Tracks
-Update `conductor/tracks.md` if applicable:
-```bash
-cat /Users/hikennoace/ai-gateway/harbangan/conductor/tracks.md 2>/dev/null
-```
-
 ### Task List
 ```bash
 rm -rf ~/.claude/tasks/{team-name}/
@@ -85,7 +79,6 @@ Terminated:
 
 Cleanup:
   Team config: {removed / kept}
-  Conductor track: {updated / not applicable}
 
 Duration: {time from creation to shutdown}
 ```

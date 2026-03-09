@@ -1,6 +1,6 @@
 ---
 name: team-feature
-description: Coordinated parallel feature development with automated team spawning, task decomposition, and integration verification. Dynamically adapts to any project stack via conductor context. Use when user says 'build this feature end to end', 'coordinate frontend and backend', or 'full feature development'. Do NOT use for executing tasks from an existing track plan (use conductor-implement).
+description: Coordinated parallel feature development with automated team spawning, task decomposition, and integration verification. Dynamically adapts to any project stack via project context. Use when user says 'build this feature end to end', 'coordinate frontend and backend', or 'full feature development'.
 argument-hint: "[feature-description] [--preset name] [--plan-first]"
 allowed-tools:
   - Bash
@@ -19,7 +19,7 @@ Coordinated parallel feature development. All service detection, agent mapping, 
 ## Critical Constraints
 
 - **Agent teams required** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` must be set
-- **Dynamic service detection** — load service categories, agent mappings, and verification commands from conductor context (`conductor/tech-stack.md` and `.claude/agents/*.md`); never hardcode service names or agent roles
+- **Dynamic service detection** — load service categories, agent mappings, and verification commands from project context (`CLAUDE.md` Service Map and `.claude/agents/*.md`); never hardcode service names or agent roles
 - **One owner per file** — no file may be assigned to multiple agents
 - **Cross-service contract verification** — verify that both sides of every interface contract are implemented before reporting success
 
@@ -29,34 +29,31 @@ Coordinated parallel feature development. All service detection, agent mapping, 
 
 Read project configuration to build service detection and verification maps:
 
-1. **Read `conductor/tech-stack.md`** to identify:
+1. **Read the Service Map section from `CLAUDE.md`** to identify:
    - Service categories (e.g., Backend, Frontend, Infrastructure) and their technologies
    - Technology keywords per service (used for scope detection in Step 2)
-   - Build/test/lint commands per service (used for verification in Step 7)
+   - Verification commands per service (used for verification in Step 7)
 
 2. **Read `.claude/agents/*.md`** frontmatter to build agent registry:
-   - Map each agent's description keywords to the service categories from tech-stack.md
+   - Map each agent's description keywords to the service categories from the Service Map
    - Result: a `service-to-agent` map (e.g., Backend -> agent whose description matches backend technologies)
 
    > **If no matching agent is found for a detected service:** Warn the user (e.g., "No agent definition matches the '{service}' service. You can manually assign an agent or spawn a general-purpose agent for this service.") and suggest manual assignment. Continue building the map for the remaining services.
 
-3. **Build keyword detection table** from tech-stack.md. For each service category, extract:
+3. **Build keyword detection table** from the Service Map. For each service category, extract:
    - Technology names (e.g., "Axum", "React", "nginx")
-   - Component names (e.g., "Web framework", "Build tool", "Reverse proxy")
-   - Related terms from the Notes column
-   - Common directory patterns (scan project structure for service directories)
+   - Agent Role Keywords column entries
+   - Common directory patterns (from the Path column)
 
-4. **Build verification command map** from tech-stack.md. For each service, determine:
-   - The lint command (if a linter is listed)
-   - The build command (if a build tool is listed)
-   - The test command (if a test framework is listed)
-   - The project subdirectory (inferred from tech-stack.md scope or directory structure)
+4. **Build verification command map** from the Service Map. For each service, use:
+   - The Verification column command
+   - The project subdirectory (from the Path column)
 
 ## Step 2: Analyze Scope
 
 Analyze the feature description against the keyword detection table built in Step 1.
 
-For each service category from tech-stack.md:
+For each service category from the Service Map:
 - Check if feature description contains any of that service's keywords
 - Scan for file paths mentioned in the description (match against project directory structure)
 - Determine which services are affected
@@ -174,7 +171,7 @@ For each service in affected_services:
   cd {project-root}/{service-subdirectory} && {lint-command} && {test-command}
 ```
 
-If no commands were found in tech-stack.md for a service, skip verification for that service and note it in the report.
+If no commands were found in the Service Map for a service, skip verification for that service and note it in the report.
 
 > **If verification commands fail (non-zero exit from lint, build, or test):** Report which specific checks failed, include the command output (stderr/stdout), and ask the user whether to fix the issues before completing or proceed despite the failures. Do not mark the feature as COMPLETE if any verification check has failed — use status NEEDS_ATTENTION in the final report.
 

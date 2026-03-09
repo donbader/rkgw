@@ -177,6 +177,45 @@ Defined in `backend/src/routes/mod.rs`:
 - Admin-only: MCP client CRUD routes (`/_ui/api/admin/mcp/clients/*`)
 - Admin-only: Guardrails profile/rule CRUD routes (`/_ui/api/guardrails/*`), CEL validation, profile testing
 
+## Service Map
+
+Used by agent teams for scope detection, agent assignment, and verification.
+
+| Service | Path | Technologies | Agent Role Keywords | Verification |
+|---------|------|-------------|--------------------|----|
+| Backend | `backend/` | Rust, Axum 0.7, Tokio, sqlx 0.8, PostgreSQL 16 | backend, rust, axum | `cargo clippy --all-targets && cargo test --lib` |
+| Frontend | `frontend/` | React 19, TypeScript 5.9, Vite 7, react-router-dom v7 | frontend, react, typescript | `npm run build && npm run lint` |
+| Infrastructure | `docker-compose*.yml`, `frontend/Dockerfile` | Docker, nginx, Let's Encrypt | infrastructure, docker, nginx, deploy | `docker compose config --quiet` |
+| Backend QA | `backend/src/` (test modules) | cargo test, tokio::test | test, backend | `cargo test --lib` |
+| Frontend QA | `e2e-tests/` | Playwright | test, E2E, browser, playwright | `npm test` |
+| Documentation | — | Markdown, Notion API, Slack API | documentation, docs, writing | — |
+
+## Quality Gates
+
+### Backend
+| Gate | Command | Must Pass |
+|------|---------|-----------|
+| Lint | `cd backend && cargo clippy --all-targets` | Zero warnings |
+| Format | `cd backend && cargo fmt --check` | No diffs |
+| Tests | `cd backend && cargo test --lib` | Zero failures |
+
+### Frontend
+| Gate | Command | Must Pass |
+|------|---------|-----------|
+| Build | `cd frontend && npm run build` | Zero errors |
+| Lint | `cd frontend && npm run lint` | Zero errors |
+
+## TDD Policy
+
+### Required TDD (test BEFORE implementation)
+- Streaming parser, auth token refresh, converter bidirectional, middleware auth chain, guardrails engine
+
+### Recommended TDD (test alongside)
+- Route handlers, HTTP client, model cache, resolver
+
+### Skip TDD (test after)
+- Docker config, static UI components, CSS-only, env vars, docs
+
 ## Playwright
 
 All Playwright E2E tests live in `e2e-tests/` (API tests in `specs/api/`, browser tests in `specs/ui/`). Screenshots and artifacts must be saved to `.playwright-mcp/` (gitignored).

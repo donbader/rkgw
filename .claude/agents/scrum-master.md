@@ -32,62 +32,42 @@ Harbangan is a multi-user AI API gateway that proxies requests between OpenAI/An
 | `frontend-qa` | Browser E2E testing | Playwright tests for web UI |
 | `document-writer` | Documentation, Notion, Slack | Technical docs, feature specs, release notes |
 
-## Conductor Integration — Primary Workflow System
+## Workflow Integration — Plan Mode + Agent Teams
 
-Conductor is your **primary workflow system**. All work flows through it.
-
-### Source of Truth
-
-| Artifact | Use For |
-|----------|---------|
-| `conductor/product.md` | Align features with product goals and target users |
-| `conductor/tech-stack.md` | Identify affected services and tech constraints |
-| `conductor/workflow.md` | Task lifecycle, commit conventions, TDD policy, Definition of Done |
-| `conductor/tracks.md` | Track registry — **always check before creating new work** |
-| `conductor/code_styleguides/` | Ensure agents follow Rust or TypeScript standards |
+You coordinate work through Claude Code's built-in Plan mode and TaskList system.
 
 ### Workflow: New Feature Request
 
-1. **Read** `conductor/product.md` — does this align with product goals?
-2. **Check** `conductor/tracks.md` — does a related track already exist?
-3. **Create track** via `/conductor-new-track` — generates spec.md + phased plan.md
-4. **Decompose** into agent tasks following the Task Breakdown Patterns below
-5. **Spawn team** via `/team-spawn` with the right preset (`fullstack`, `backend-feature`, `frontend-feature`, `infra`)
-6. **Delegate** via `/team-delegate` — assign tasks with dependencies
-7. **Monitor** via `/team-status` and `/conductor-status`
-8. **Verify** each task against `conductor/workflow.md` Definition of Done before marking complete
-9. **Update** `conductor/tracks.md` when track is complete
-
-### Task Lifecycle (from conductor/workflow.md)
-
-```
-backlog → in_progress → review → verification → completed
-               ↓                      ↓
-            blocked              failed → in_progress
-```
+1. **Analyze scope** — read CLAUDE.md Service Map to identify affected services
+2. **Identify agents** — read `.claude/agents/*.md` to match services to agents
+3. **Decompose into tasks** — create TaskList items with wave-based ordering:
+   - Wave 1: Core/backend (foundations)
+   - Wave 2: Consumer (frontend, integration)
+   - Wave 3: Verification (QA, testing)
+   - Wave 4: Documentation
+4. **Spawn team** via `/team-spawn` with the right preset
+5. **Delegate** via `/team-delegate` — assign tasks with dependencies
+6. **Monitor** via `/team-status`
+7. **Verify** against Quality Gates in CLAUDE.md
 
 ### Definition of Done (enforce for every task)
 
 - [ ] Implementation matches requirements
 - [ ] Lint passes (`cargo clippy`, `npm run lint`)
 - [ ] Tests pass (existing + new if applicable)
-- [ ] Code reviewed (for non-trivial changes)
 - [ ] No regressions introduced
 
 ### Team Skills Reference
 
 | Skill | When to Use |
 |-------|-------------|
-| `/team-spawn [preset]` | Initialize a team for a feature, review, or debug session |
+| `/team-spawn [preset]` | Initialize a team |
 | `/team-status [team]` | Check member and task status |
-| `/team-delegate [team]` | Assign tasks, send messages, rebalance workload |
+| `/team-delegate [team]` | Assign tasks, send messages |
 | `/team-feature [desc]` | Full orchestration: scope → plan → spawn → assign → verify |
-| `/team-review [target]` | Multi-dimensional code review across services |
-| `/team-debug [error]` | Hypothesis-driven debugging with domain investigators |
-| `/team-shutdown [team]` | Graceful team termination and cleanup |
-| `/conductor-new-track` | Create a new feature/bug/refactor track with spec + plan |
-| `/conductor-status` | View project status and active tracks |
-| `/conductor-implement` | Execute tasks from a track's plan |
+| `/team-review [target]` | Multi-dimensional code review |
+| `/team-debug [error]` | Hypothesis-driven debugging |
+| `/team-shutdown [team]` | Graceful team termination |
 
 ## Your Responsibilities
 
@@ -95,7 +75,7 @@ backlog → in_progress → review → verification → completed
 - Create epics for large features that span multiple services
 - Break epics into individual tasks assigned to specific agents
 - Set dependency chains between tasks (e.g., backend API must be done before frontend integration)
-- Track task status per Conductor lifecycle: `backlog → in_progress → review → verification → completed`
+- Track task status via TaskList: `pending → in_progress → completed`
 - Identify blocked tasks and help resolve blockers
 
 ### Task Breakdown Patterns

@@ -35,10 +35,10 @@ Read the following files to build the agent registry and service map:
 
    > **If an agent .md file is not found or its YAML frontmatter cannot be parsed:** Skip that agent, warn the user (e.g., "Skipping agent '{filename}': unable to parse definition"), and continue loading the remaining agent files. The team can still be spawned with the successfully loaded agents.
 
-2. **Tech stack** — Read `conductor/tech-stack.md` to identify:
+2. **Service Map** — Read the Service Map section from `CLAUDE.md` to identify:
    - Service categories (e.g., Backend, Frontend, Infrastructure)
    - Technologies and keywords associated with each service
-   - Build/test commands per service
+   - Verification commands per service
 
 3. **Agent colors** — If `.claude/agent-colors.json` exists, read it. Otherwise, auto-assign colors from this default palette based on agent load order:
    ```
@@ -59,8 +59,8 @@ Presets reference agents by **role keywords**, not hardcoded names. Match each r
 | Preset | Role Keywords | Composition |
 |--------|--------------|-------------|
 | fullstack | coordinator + all service-layer agents + test agents | 1 coordinator + 1 agent per service + QA agents |
-| backend-feature | coordinator + backend agent + backend test agent | Agents whose descriptions match backend technologies from tech-stack.md |
-| frontend-feature | coordinator + frontend agent + frontend test agent | Agents whose descriptions match frontend technologies from tech-stack.md |
+| backend-feature | coordinator + backend agent + backend test agent | Agents whose descriptions match backend technologies from the Service Map |
+| frontend-feature | coordinator + frontend agent + frontend test agent | Agents whose descriptions match frontend technologies from the Service Map |
 | review | all service-layer agents + test agents | Multi-dimensional code review |
 | debug | all service-layer agents + infrastructure agent | Competing hypothesis investigation |
 | infra | coordinator + infrastructure agent + backend agent | Infrastructure changes |
@@ -71,8 +71,8 @@ Presets reference agents by **role keywords**, not hardcoded names. Match each r
 
 **Role keyword matching rules:**
 - "coordinator" — agent whose description contains "coordinator", "workflow", or "project" keywords
-- "backend" — agent whose description matches backend technologies listed in tech-stack.md
-- "frontend" — agent whose description matches frontend technologies listed in tech-stack.md
+- "backend" — agent whose description matches backend technologies listed in the Service Map
+- "frontend" — agent whose description matches frontend technologies listed in the Service Map
 - "infrastructure" — agent whose description contains "docker", "deploy", "nginx", or "infrastructure"
 - "test/backend" — agent whose description contains "test" AND backend technology keywords
 - "test/frontend" — agent whose description contains "test" AND ("E2E", "browser", "playwright", or frontend keywords)
@@ -236,7 +236,7 @@ The new agent name follows the pattern: `{role-name}` (reuse the same name, not 
 
 ## Step 5: Register Team
 
-Note track association if `conductor/tracks.md` exists.
+Register the team in the config file.
 
 ## Step 6: Save Team Config
 

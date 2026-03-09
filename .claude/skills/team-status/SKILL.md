@@ -1,6 +1,6 @@
 ---
 name: team-status
-description: Monitor agent team members, their roles, and current task status. Use when user says 'how are agents doing', 'who is idle', 'team progress', 'check agent status', or 'show team members'. Do NOT use for project track progress (use conductor-status).
+description: Monitor agent team members, their roles, and current task status. Use when user says 'how are agents doing', 'who is idle', 'team progress', 'check agent status', or 'show team members'.
 argument-hint: "[team-name] [--tasks] [--members] [--json]"
 allowed-tools:
   - Bash
@@ -31,11 +31,6 @@ cat ~/.claude/teams/{team-name}/config.json
 ```
 
 > **If the config file is missing or cannot be read:** Check whether any team configs exist at all by listing `~/.claude/teams/`. If other teams are found, list them and ask the user to specify the correct team name. If no team directories exist, report "No active teams found. Use /team-spawn to create a team first." and stop.
-
-Also check conductor tracks:
-```bash
-cat /Users/hikennoace/ai-gateway/harbangan/conductor/tracks.md 2>/dev/null
-```
 
 ## Step 3: Check Agent Processes
 
