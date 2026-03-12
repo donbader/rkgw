@@ -842,6 +842,8 @@ async fn chat_completions_handler(
         "Stream options: {:?}", request.stream_options
     );
 
+    let first_token_timeout = config.first_token_timeout;
+    let streaming_timeout = config.streaming_timeout;
     // Handle streaming vs non-streaming
     if request.stream {
         // Streaming response
@@ -851,7 +853,8 @@ async fn chat_completions_handler(
         let openai_stream = crate::streaming::stream_kiro_to_openai(
             response,
             &request.model,
-            15,
+            first_token_timeout,
+            streaming_timeout,
             input_tokens,
             None,
             include_usage,
@@ -885,11 +888,11 @@ async fn chat_completions_handler(
         // We use collect_openai_response to parse the stream and aggregate into a single response.
         tracing::debug!("Handling non-streaming response (collecting stream)");
 
-        let first_token_timeout = config.first_token_timeout;
         let openai_response = crate::streaming::collect_openai_response(
             response,
             &request.model,
             first_token_timeout,
+            streaming_timeout,
             input_tokens,
             config.truncation_recovery,
         )
@@ -1120,17 +1123,19 @@ async fn anthropic_messages_handler(
         request.tools.as_ref(),
     );
 
+    let first_token_timeout = config.first_token_timeout;
+    let streaming_timeout = config.streaming_timeout;
     // Handle streaming vs non-streaming
     if request.stream {
         // Streaming response
         tracing::debug!("Handling streaming response");
 
         // Convert response to Anthropic SSE stream
-        let first_token_timeout = config.first_token_timeout;
         let anthropic_stream = crate::streaming::stream_kiro_to_anthropic(
             response,
             &request.model,
             first_token_timeout,
+            streaming_timeout,
             input_tokens,
             None,
             config.truncation_recovery,
@@ -1162,11 +1167,11 @@ async fn anthropic_messages_handler(
         // We use collect_anthropic_response to parse the stream and aggregate into a single response.
         tracing::debug!("Handling non-streaming response (collecting stream)");
 
-        let first_token_timeout = config.first_token_timeout;
         let anthropic_response = crate::streaming::collect_anthropic_response(
             response,
             &request.model,
             first_token_timeout,
+            streaming_timeout,
             input_tokens,
             config.truncation_recovery,
         )

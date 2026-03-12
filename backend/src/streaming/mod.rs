@@ -814,14 +814,16 @@ pub fn parse_kiro_event(json: &Value) -> Option<KiroEvent> {
 pub async fn parse_kiro_stream(
     response: reqwest::Response,
     first_token_timeout_secs: u64,
+    idle_timeout_secs: u64,
 ) -> Result<impl Stream<Item = Result<KiroEvent, ApiError>>, ApiError> {
-    parse_kiro_stream_with_thinking(response, first_token_timeout_secs, true).await
+    parse_kiro_stream_with_thinking(response, first_token_timeout_secs, idle_timeout_secs, true).await
 }
 
 /// Parse a Kiro SSE stream with optional thinking parser.
 pub async fn parse_kiro_stream_with_thinking(
     response: reqwest::Response,
     first_token_timeout_secs: u64,
+    idle_timeout_secs: u64,
     enable_thinking_parser: bool,
 ) -> Result<impl Stream<Item = Result<KiroEvent, ApiError>>, ApiError> {
     let mut byte_stream = response.bytes_stream();
@@ -932,6 +934,25 @@ pub async fn parse_kiro_stream_with_thinking(
     // Wrap parser in Arc<Mutex<>> to share state across chunks
     let parser = std::sync::Arc::new(std::sync::Mutex::new(parser));
     let parser_for_stream = parser.clone();
+
+    // Wrap byte_stream with per-chunk idle timeout to prevent silent cutoffs
+    let byte_stream = futures::stream::unfold(
+        (byte_stream, idle_timeout_secs),
+        |(mut stream, idle_secs)| async move {
+            let idle_dur = Duration::from_secs(idle_secs);
+            match timeout(idle_dur, stream.next()).await {
+                Ok(Some(result)) => Some((result, (stream, idle_secs))),
+                Ok(None) => None, // Stream ended naturally
+                Err(_) => {
+                    warn!(
+                        "[IdleTimeout] No data received for {}s, closing stream",
+                        idle_secs
+                    );
+                    None // End stream gracefully on idle timeout
+                }
+            }
+        },
+    );
 
     // Create stream that yields first chunk events, then continues with remaining chunks
     let remaining_stream = byte_stream
@@ -1673,6 +1694,7 @@ pub async fn stream_kiro_to_openai(
     response: reqwest::Response,
     model: &str,
     first_token_timeout_secs: u64,
+    idle_timeout_secs: u64,
     input_tokens: i32,
     output_tokens_tracker: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
     include_usage: bool,
@@ -1683,7 +1705,7 @@ pub async fn stream_kiro_to_openai(
     let model = model.to_string();
 
     // Parse Kiro stream and collect all events
-    let kiro_stream = parse_kiro_stream(response, first_token_timeout_secs).await?;
+    let kiro_stream = parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
 
     // Use scan to maintain state across stream items
     use std::sync::Arc;
@@ -2045,6 +2067,7 @@ pub async fn stream_kiro_to_anthropic(
     response: reqwest::Response,
     model: &str,
     first_token_timeout_secs: u64,
+    idle_timeout_secs: u64,
     input_tokens: i32,
     output_tokens_tracker: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
     truncation_recovery: bool,
@@ -2053,7 +2076,7 @@ pub async fn stream_kiro_to_anthropic(
     let model = model.to_string();
 
     // Parse Kiro stream
-    let kiro_stream = parse_kiro_stream(response, first_token_timeout_secs).await?;
+    let kiro_stream = parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
 
     // Use state to track blocks
     use std::sync::Arc;
@@ -2430,6 +2453,7 @@ pub async fn collect_openai_response(
     response: reqwest::Response,
     model: &str,
     first_token_timeout_secs: u64,
+    idle_timeout_secs: u64,
     input_tokens: i32,
     truncation_recovery: bool,
 ) -> Result<Value, ApiError> {
@@ -2439,7 +2463,7 @@ pub async fn collect_openai_response(
     let created_time = chrono::Utc::now().timestamp();
 
     // Parse Kiro stream
-    let mut kiro_stream = parse_kiro_stream(response, first_token_timeout_secs).await?;
+    let mut kiro_stream = parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
 
     // Collect all content
     let mut full_content = String::new();
@@ -2580,6 +2604,7 @@ pub async fn collect_anthropic_response(
     response: reqwest::Response,
     model: &str,
     first_token_timeout_secs: u64,
+    idle_timeout_secs: u64,
     input_tokens: i32,
     truncation_recovery: bool,
 ) -> Result<Value, ApiError> {
@@ -2588,7 +2613,7 @@ pub async fn collect_anthropic_response(
     let message_id = generate_anthropic_message_id();
 
     // Parse Kiro stream
-    let mut kiro_stream = parse_kiro_stream(response, first_token_timeout_secs).await?;
+    let mut kiro_stream = parse_kiro_stream(response, first_token_timeout_secs, idle_timeout_secs).await?;
 
     // Collect all content
     let mut full_content = String::new();

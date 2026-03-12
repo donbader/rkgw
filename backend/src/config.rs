@@ -10,7 +10,6 @@ pub struct Config {
     pub kiro_region: String,
 
     // Timeouts
-    #[allow(dead_code)]
     pub streaming_timeout: u64,
     pub token_refresh_threshold: u64,
     pub first_token_timeout: u64,
