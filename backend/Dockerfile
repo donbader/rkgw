@@ -12,7 +12,8 @@ WORKDIR /app
 COPY --from=builder /usr/local/bin/harbangan /app/harbangan
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh \
-    && mkdir -p /data && chown appuser:appuser /data
+    && mkdir -p /data && chown appuser:appuser /data \
+    && mkdir -p /app/debug_logs && chown appuser:appuser /app/debug_logs
 USER appuser
 EXPOSE 8000
 CMD ["/app/harbangan"]
