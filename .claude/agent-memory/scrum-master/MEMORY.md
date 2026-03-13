@@ -1,1 +1,0 @@
-# Scrum Master Memory

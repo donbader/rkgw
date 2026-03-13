@@ -10,7 +10,7 @@ This directory is the AI workflow infrastructure for Harbangan. It provides a fu
 ├── README.md                    # This file (full documentation)
 ├── settings.json                # Claude Code configuration
 ├── agents/                      # 8 agent definitions
-├── skills/                      # 6 invocable skills
+├── skills/                      # 5 invocable skills
 ├── agent-memory/                # Persistent per-agent memory
 ├── rules/                       # Coding standards + plan mode rules
 └── plans/                       # Implementation plans
@@ -43,11 +43,11 @@ Each agent is a `.md` file with YAML frontmatter defining its name, description,
 
 | Agent | Role | maxTurns |
 |-------|------|----------|
-| `scrum-master` | Workflow coordinator — decomposes tasks, spawns teams, monitors progress | 100 |
+| `kanban-master` | Workflow coordinator — decomposes tasks, spawns teams, monitors progress | 100 |
 
 ---
 
-## Skills (6 total)
+## Skills (5 total)
 
 Skills are invocable via `/skill-name [arguments]`.
 
@@ -83,12 +83,13 @@ Skills are invocable via `/skill-name [arguments]`.
 | `refactor` | coordinator + 2 service + 1 reviewer | Code refactoring |
 | `hotfix` | 1 service + 1 QA agent | Urgent bug fix |
 
-### Other Skills (2)
+### Other Skills (1)
 
 | Skill | Purpose |
 |-------|---------|
-| `team-coordination` | Reference: file ownership rules, communication protocols, team sizing |
 | `humanizer` | Remove signs of AI-generated writing from text |
+
+Note: Team coordination guidance (file ownership, communication protocols, team sizing) is now in `.claude/rules/team-coordination.md` and auto-loaded into all agent sessions.
 
 ---
 
@@ -109,7 +110,7 @@ gh issue close #N              →  sync completion to GitHub
 /team-implement --shutdown     →  persist to GitHub, clean up ephemeral state
 ```
 
-### Scrum Master Workflow
+### Kanban Master Workflow
 
 ```
  1. gh issue list                       — check existing issues for related work

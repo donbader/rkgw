@@ -8,7 +8,7 @@ This directory contains the multi-agent workflow system for Harbangan. See [READ
 .claude/
 ├── settings.json                # Plugin toggles, MCP servers, env vars
 ├── agents/                      # 8 agent definitions (domain-specific AI roles)
-│   ├── scrum-master.md          # Workflow coordinator (orchestrates all agents)
+│   ├── kanban-master.md          # Workflow coordinator (orchestrates all agents)
 │   ├── rust-backend-engineer.md # Axum/Tokio backend (converters, auth, streaming)
 │   ├── react-frontend-engineer.md # React 19 web UI (pages, SSE, CRT aesthetic)
 │   ├── database-engineer.md     # PostgreSQL schema, migrations, query optimization
@@ -16,18 +16,18 @@ This directory contains the multi-agent workflow system for Harbangan. See [READ
 │   ├── backend-qa.md            # Rust unit/integration tests
 │   ├── frontend-qa.md           # Playwright E2E tests
 │   └── document-writer.md       # Notion, Slack, documentation
-├── skills/                      # 6 invocable skills (/skill-name)
+├── skills/                      # 5 invocable skills (/skill-name)
 │   ├── team-plan/               # Scope analysis and implementation planning
 │   ├── team-implement/          # Full lifecycle: spawn → assign → verify → PR → shutdown
 │   ├── team-review/             # Multi-dimensional code review
 │   ├── team-debug/              # Hypothesis-driven debugging
-│   ├── team-coordination/       # Reference: file ownership, communication
 │   └── humanizer/               # AI writing cleanup
 ├── agent-memory/                # Persistent agent-specific memory
 ├── rules/
 │   ├── backend.md               # Backend coding standards
 │   ├── web-ui.md                # Frontend coding standards
-│   └── plan-mode.md             # Plan mode agent-awareness rules
+│   ├── plan-mode.md             # Plan mode agent-awareness rules
+│   └── team-coordination.md     # Team sizing, file ownership, communication protocols
 └── plans/
     └── google-sso-multi-user-rbac.md  # Auth migration plan
 ```
