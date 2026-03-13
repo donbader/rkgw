@@ -10,6 +10,12 @@ allowed-tools:
   - Write
   - SendMessage
   - AskUserQuestion
+  - TeamCreate
+  - TeamDelete
+  - Agent
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
 ---
 
 # Team Debug — Analysis of Competing Hypotheses
@@ -144,7 +150,26 @@ Assigned to: {Investigator agent}
 
 ### 3.1 Spawn Investigators
 
-Generate team name: `debug-{short-id}`. Spawn investigator agents using the debug preset or domain-specific agents identified in Phase 1.
+Generate team name: `debug-{short-id}`.
+
+1. Create the team using `TeamCreate`:
+   ```
+   TeamCreate({ team_name: "debug-{short-id}", description: "ACH debug investigation" })
+   ```
+
+2. Spawn investigator agents using the `Agent` tool with `team_name` parameter. Use the domain-specific agents identified in Phase 1:
+   ```
+   Agent({
+     name: "{agent-name}",
+     team_name: "debug-{short-id}",
+     subagent_type: "{agent-name}",
+     description: "Investigate hypothesis {N}",
+     prompt: "You are an investigator on debug team. Read-only — do not modify code. {hypothesis details}",
+     run_in_background: true
+   })
+   ```
+
+   Spawn all investigators in parallel (single message with multiple Agent calls).
 
 ### 3.2 Assign Investigations
 
@@ -302,6 +327,6 @@ Prevention:
 
 ### 6.2 Cleanup
 
-- Terminate all investigator agents
+- Terminate all investigator agents via `SendMessage` with `type: "shutdown_request"`
 - Save report to `~/.claude/teams/{team-name}/debug-report.md`
-- Remove team resources
+- Use `TeamDelete` to remove team and task directories

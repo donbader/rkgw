@@ -7,6 +7,8 @@ allowed-tools:
   - Read
   - SendMessage
   - AskUserQuestion
+  - TeamDelete
+  - TaskList
 ---
 
 # Team Shutdown
@@ -56,8 +58,8 @@ Before removing the team config directory, clean up ghost entries:
 
 1. Read `~/.claude/teams/{team-name}/config.json`
 2. For each agent in the `agents` array:
-   - Check if the agent process is running: `ps aux | grep "claude.*{agent-name}.*{team-name}" | grep -v grep`
-   - If not running and status is not `"replaced"`, set status to `"exited"`
+   - Check the agent's status from the team config `members` array
+   - If status is not `"replaced"` and the agent is no longer responsive, set status to `"exited"`
 3. This ensures the final config snapshot (if `--keep-config`) accurately reflects reality
 
 ### Persist to GitHub
@@ -112,15 +114,11 @@ If the team config has a `worktree` field (non-null):
    ```
 
 ### Team Config
-Unless `--keep-config`:
-```bash
-rm -rf ~/.claude/teams/{team-name}/
+Unless `--keep-config`, use `TeamDelete` to remove the team and task directories:
 ```
-
-### Task List
-```bash
-rm -rf ~/.claude/tasks/{team-name}/
+TeamDelete()
 ```
+This removes both `~/.claude/teams/{team-name}/` and `~/.claude/tasks/{team-name}/` automatically.
 
 ## Step 5: Report
 

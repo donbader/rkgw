@@ -8,6 +8,13 @@ allowed-tools:
   - Write
   - Glob
   - AskUserQuestion
+  - TeamCreate
+  - TeamDelete
+  - Agent
+  - SendMessage
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
 ---
 
 # Team Spawn
@@ -195,55 +202,49 @@ Determine whether this team should run in a git worktree for filesystem isolatio
    - If worktree created: `working-dir = {project-root}/.trees/{team-name}`
    - If no worktree: `working-dir = {project-root}`
 
-## Step 4: Spawn Agents
+## Step 4: Create Team and Spawn Agents
 
-For each agent in the resolved composition, spawn using the registry data:
+### 4.1 — Create the team
 
-```bash
-cd {working-dir} && claude \
-  --agent-id {agent-name}@{team-name} \
-  --agent-name {agent-name} \
-  --team-name {team-name} \
-  --agent-color "{color-from-registry}" \
-  --parent-session-id $CLAUDE_SESSION_ID \
-  --agent-type {agent-name} \
-  --dangerously-skip-permissions \
-  --model {model-from-registry-or-inherit}
+Use the `TeamCreate` tool to create the team:
+
+```
+TeamCreate({
+  team_name: "{team-name}",
+  description: "{preset} team for {feature-or-purpose}"
+})
+```
+
+This creates `~/.claude/teams/{team-name}/` and `~/.claude/tasks/{team-name}/` automatically.
+
+### 4.2 — Spawn agents into the team
+
+For each agent in the resolved composition, use the `Agent` tool with `team_name` and `name` parameters:
+
+```
+Agent({
+  name: "{agent-name}",
+  team_name: "{team-name}",
+  subagent_type: "{agent-name}",
+  description: "{short role description}",
+  prompt: "You are {agent-name} on team {team-name}. Read your agent definition at .claude/agents/{agent-name}.md for role context. Working directory: {working-dir}. Wait for task assignments via messages.",
+  run_in_background: true,
+  model: "{model-from-registry-or-inherit}"
+})
 ```
 
 Where `{working-dir}` is the worktree path (from Step 3.5) or `{project-root}` if no worktree.
 
-For generic presets (research, security, migration) where agents are not from definition files, use the appropriate `subagent_type` from the agent-teams plugin:
+For generic presets (research, security, migration) where agents are not from definition files, use the appropriate `subagent_type`:
 - research: `general-purpose`
-- security: `agent-teams:team-reviewer`
-- migration: `agent-teams:team-lead`, `agent-teams:team-implementer`, `agent-teams:team-reviewer`
+- security/review: `general-purpose` (with review-focused prompt)
+- migration: `general-purpose` (with role-specific prompt for lead/implementer/reviewer)
 
-Run each spawn command with `run_in_background: true`.
+If a worktree was created, use `isolation: "worktree"` on each Agent call OR include the worktree path in the prompt so agents work in the correct directory.
 
-> **If an agent spawn command fails (non-zero exit):** Retry the spawn once. If it still fails, report the error (including the agent name and exit code), mark that agent as `"status": "failed"` in the team config, and continue spawning the remaining agents. Do not abort the entire team spawn due to a single agent failure.
+Spawn all agents in parallel — include all Agent tool calls in a single message to maximize concurrency.
 
-### iTerm2 Stale Pane Workaround
-
-When respawning an agent (`--respawn-for`), the Claude Code agent-teams plugin may try to reuse the dead agent's iTerm2 pane session ID, causing:
-```
-Failed to create iTerm2 split pane: Error: Session 'XXXX' not found
-```
-
-If the spawn command fails with this error:
-1. **First retry**: Run the spawn command again (the plugin sometimes recovers on retry)
-2. **Second retry**: Spawn WITHOUT the `--team-name` parameter to force a new iTerm2 pane, then manually register the agent in the team config file afterward:
-   ```bash
-   cd {working-dir} && claude \
-     --agent-id {agent-name}@{team-name} \
-     --agent-name {agent-name} \
-     --agent-color "{color}" \
-     --parent-session-id $CLAUDE_SESSION_ID \
-     --agent-type {agent-name} \
-     --dangerously-skip-permissions \
-     --model {model}
-   ```
-   After successful spawn, manually add the agent to `~/.claude/teams/{team-name}/config.json`.
-3. **If both retries fail**: Report the error and suggest the user manually open a new terminal tab and spawn the agent there.
+> **If an agent spawn fails:** Report the error (agent name and details), mark that agent as `"status": "failed"` in the team config, and continue with the remaining agents. Do not abort the entire team spawn due to a single agent failure.
 
 ## Step 4.5: Respawn Protocol (when --respawn-for is provided)
 
@@ -282,7 +283,7 @@ Resume from the first incomplete task. Do not redo completed work.
 For every task owned by `dead_agent_name`, update ownership to the new agent name using TaskUpdate with `owner: "{new-agent-name}"`.
 
 ### 4.5.5 — Spawn with context
-Spawn the new agent using the same command as Step 4, but include the context summary in the initial message sent to the agent after spawn.
+Spawn the new agent using the `Agent` tool (same as Step 4.2), but include the context summary in the `prompt` parameter:
 
 The new agent name follows the pattern: `{role-name}` (reuse the same name, not `-2`/`-3` suffixes). This avoids task ownership mismatch.
 

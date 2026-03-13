@@ -8,6 +8,10 @@ allowed-tools:
   - Write
   - SendMessage
   - AskUserQuestion
+  - Agent
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
 ---
 
 # Team Delegate
@@ -75,6 +79,16 @@ Send to ALL agents with `type: "broadcast"`.
 
 ### Rebalance
 Review assignments, identify idle/overloaded/blocked agents, suggest reassignments.
+
+Before rebalancing, check for dependency-blocked tasks:
+```bash
+gh issue list --state open --label "status:blocked" --json number,title,labels
+```
+Flag any tasks whose dependency issues are still open as blocked — do not reassign blocked tasks to idle agents. Instead, report them separately:
+```
+Blocked tasks (cannot reassign):
+  #42: [backend]: Add converter — Depends on #40 (still open)
+```
 
 > **If no idle agents are available for rebalancing:** Report the current workload distribution for all agents (agent name, current task, how long they have been working) and suggest the user either wait for an agent to finish or manually reassign a lower-priority task.
 

@@ -5,6 +5,7 @@ argument-hint: "[team-name] [--tasks] [--members] [--json]"
 allowed-tools:
   - Bash
   - Read
+  - TaskList
 ---
 
 # Team Status
@@ -26,19 +27,15 @@ Monitor agent team members, their roles, and current task status for Harbangan t
 
 ## Step 2: Load Team Config
 
-```bash
-cat ~/.claude/teams/{team-name}/config.json
-```
+Read `~/.claude/teams/{team-name}/config.json` using the Read tool.
 
 > **If the config file is missing or cannot be read:** Check whether any team configs exist at all by listing `~/.claude/teams/`. If other teams are found, list them and ask the user to specify the correct team name. If no team directories exist, report "No active teams found. Use /team-spawn to create a team first." and stop.
 
-## Step 3: Check Agent Processes
+## Step 3: Check Agent Status
 
-```bash
-ps aux | grep "claude.*--team-name {team-name}" | grep -v grep
-```
+Read the team config's `members` array to check each agent's status. The built-in team system tracks agent status automatically (active, idle, exited).
 
-> **If the `ps` command fails to find agent processes** (returns no matches or errors): Mark those agents as "status unknown" in the report rather than "stopped". An absent process entry may mean the agent exited, was never started, or the process name pattern does not match -- do not assume the agent has stopped.
+> **If an agent's status is unclear from the config:** Mark as "status unknown" in the report rather than "stopped". Do not assume the agent has stopped.
 
 ## Step 3.5: Agent Activity Probe
 

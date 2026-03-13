@@ -10,6 +10,12 @@ allowed-tools:
   - Glob
   - SendMessage
   - AskUserQuestion
+  - TeamCreate
+  - TeamDelete
+  - Agent
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
 ---
 
 # Team Feature
@@ -146,9 +152,9 @@ Do NOT spawn Wave 2, 3, or 4 agents yet. Record their planned composition in the
 When a wave completes (all its tasks marked done), spawn the next wave's agents:
 1. Read `deferred_agents` from team config
 2. Filter for agents whose wave number matches the next wave
-3. Spawn those agents via the same mechanism as Step 4 in team-spawn
+3. Spawn those agents using the `Agent` tool with `team_name` parameter (same as Step 4.2 in team-spawn)
 4. Move them from `deferred_agents` to `agents` in the config
-5. Send them their assignments immediately after spawn
+5. Send them their assignments immediately after spawn via `SendMessage`
 
 This avoids 15+ minutes of idle resource consumption for blocked agents.
 

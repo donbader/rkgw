@@ -10,6 +10,12 @@ allowed-tools:
   - Write
   - SendMessage
   - AskUserQuestion
+  - TeamCreate
+  - TeamDelete
+  - Agent
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
 ---
 
 # Team Review
@@ -72,9 +78,22 @@ Refer to `references/review-dimensions.md` for detailed per-dimension checklists
 ## Phase 3: Spawn Reviewers
 
 1. Generate team name: `review-{short-id}`
-2. For each requested dimension, spawn a reviewer teammate:
-   - `name`: `{dimension}-reviewer` (e.g., `security-reviewer`)
-   - `prompt`: Include dimension assignment, checklist from `references/review-dimensions.md`, target files, and diff content
+2. Create the team using `TeamCreate`:
+   ```
+   TeamCreate({ team_name: "review-{short-id}", description: "Code review: {dimensions}" })
+   ```
+3. For each requested dimension, spawn a reviewer using the `Agent` tool:
+   ```
+   Agent({
+     name: "{dimension}-reviewer",
+     team_name: "review-{short-id}",
+     subagent_type: "general-purpose",
+     description: "Review {dimension}",
+     prompt: "You are a {dimension} reviewer. {dimension assignment, checklist, target files, diff content}",
+     run_in_background: true
+   })
+   ```
+   Spawn all reviewers in parallel (single message with multiple Agent calls).
 
 ### Reviewer-to-Agent Mapping
 
@@ -205,5 +224,5 @@ Present the consolidated report:
 
 ## Phase 8: Cleanup
 
-1. Send `shutdown_request` to all reviewer teammates
-2. Call cleanup to remove team resources
+1. Send `shutdown_request` to all reviewer teammates via `SendMessage`
+2. Use `TeamDelete` to remove team and task directories
