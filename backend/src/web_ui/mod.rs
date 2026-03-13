@@ -58,7 +58,7 @@ pub async fn setup_guard(
 ///
 /// Public routes (no auth): status, Google auth redirect/callback.
 /// Session-authenticated routes: metrics, system, models, logs, config, auth/me, auth/logout,
-///   Kiro token management, API key management.
+///   Kiro token management, API key management, model registry.
 /// Admin-only routes: domain allowlist management.
 /// All mutating endpoints require CSRF validation.
 pub fn web_ui_routes(state: AppState) -> Router {
@@ -84,6 +84,11 @@ pub fn web_ui_routes(state: AppState) -> Router {
         .merge(qwen_auth::qwen_auth_routes())
         // Provider priority management
         .merge(provider_priority::provider_priority_routes())
+        // Model registry (session-authenticated, all users)
+        .nest(
+            "/models/registry",
+            model_registry_handlers::model_registry_routes(),
+        )
         // Password auth: 2FA setup/verify, password change (session-authenticated)
         .route("/auth/2fa/setup", get(password_auth::setup_2fa_handler))
         .route("/auth/2fa/verify", post(password_auth::verify_2fa_handler))
@@ -108,10 +113,6 @@ pub fn web_ui_routes(state: AppState) -> Router {
         .merge(config_api::user_routes())
         .merge(crate::guardrails::api::guardrails_routes())
         .nest("/admin/mcp", crate::mcp::api::mcp_admin_routes())
-        .nest(
-            "/admin/models",
-            model_registry_handlers::model_registry_routes(),
-        )
         // Admin password auth: create users, reset passwords
         .route(
             "/admin/users/create",
