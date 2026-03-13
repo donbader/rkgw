@@ -11,14 +11,14 @@ use crate::web_ui::config_db::RegistryModel;
 
 // ── Request / Response Types ─────────────────────────────────
 
-/// Response for GET /admin/models — list all registry models.
+/// Response for GET /models/registry — list all registry models.
 #[derive(Debug, Serialize)]
 pub struct ModelsListResponse {
     pub models: Vec<RegistryModel>,
     pub total: usize,
 }
 
-/// Request body for PATCH /admin/models/:id — toggle enabled or update display_name.
+/// Request body for PATCH /models/registry/:id — toggle enabled or update display_name.
 #[derive(Debug, Deserialize)]
 pub struct UpdateModelRequest {
     pub enabled: Option<bool>,
@@ -32,7 +32,7 @@ pub struct UpdateModelResponse {
     pub id: Uuid,
 }
 
-/// Request body for POST /admin/models/populate.
+/// Request body for POST /models/registry/populate.
 #[derive(Debug, Deserialize)]
 pub struct PopulateRequest {
     /// Optional provider_id to populate. If None, populates all providers.
@@ -55,7 +55,7 @@ pub struct DeleteModelResponse {
 
 // ── Route Handlers ──────────────────────────────────────────
 
-/// GET /admin/models — list all models in the registry.
+/// GET /models/registry — list all models in the registry.
 async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
     let db = match state.require_config_db() {
         Ok(db) => db,
@@ -78,7 +78,7 @@ async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-/// PATCH /admin/models/:id — update a model (enable/disable, rename).
+/// PATCH /models/registry/:id — update a model (enable/disable, rename).
 async fn update_model(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -137,7 +137,7 @@ async fn update_model(
     Json(UpdateModelResponse { success: true, id }).into_response()
 }
 
-/// DELETE /admin/models/:id — remove a model from the registry.
+/// DELETE /models/registry/:id — remove a model from the registry.
 async fn delete_model(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let db = match state.require_config_db() {
         Ok(db) => db,
@@ -166,7 +166,7 @@ async fn delete_model(State(state): State<AppState>, Path(id): Path<Uuid>) -> im
     }
 }
 
-/// POST /admin/models/populate — populate models from API or static data.
+/// POST /models/registry/populate — populate models from API or static data.
 async fn populate_models(
     State(state): State<AppState>,
     Json(body): Json<PopulateRequest>,
@@ -257,7 +257,7 @@ async fn populate_models(
 
 // ── Router ───────────────────────────────────────────────────
 
-/// Admin model registry routes, to be nested under `/admin/models`.
+/// Model registry routes, nested under `/models/registry` (session-authenticated).
 pub fn model_registry_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list_models))
