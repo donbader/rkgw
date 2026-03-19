@@ -101,16 +101,21 @@ impl AuthManager {
 
     /// Create an AuthManager from environment variables (proxy-only mode).
     /// No database required — credentials come from env vars set by entrypoint.sh.
-    pub fn new_from_env(config: &crate::config::Config) -> Result<Self> {
-        let proxy = config
-            .proxy
-            .as_ref()
-            .context("ProxyConfig is required for proxy-only mode")?;
+    /// Returns Ok(Some) if Kiro credentials are available, Ok(None) if not.
+    pub fn new_from_env(config: &crate::config::Config) -> Result<Option<Self>> {
+        let proxy = config.proxy.as_ref();
 
-        let refresh_token = proxy
-            .kiro_refresh_token
-            .clone()
-            .context("KIRO_REFRESH_TOKEN is required for proxy-only mode")?;
+        let refresh_token = proxy.and_then(|p| p.kiro_refresh_token.clone());
+
+        let refresh_token = match refresh_token {
+            Some(t) => t,
+            None => {
+                tracing::info!("No KIRO_REFRESH_TOKEN set — Kiro provider not configured");
+                return Ok(None);
+            }
+        };
+
+        let proxy = proxy.unwrap(); // safe: refresh_token came from proxy
 
         let credentials = Credentials {
             refresh_token,
@@ -129,14 +134,14 @@ impl AuthManager {
             .build()
             .context("Failed to create HTTP client")?;
 
-        Ok(Self {
+        Ok(Some(Self {
             credentials: Arc::new(RwLock::new(credentials)),
             access_token: Arc::new(RwLock::new(None)),
             expires_at: Arc::new(RwLock::new(None)),
             client,
             config_db: None,
             refresh_threshold: config.token_refresh_threshold as i64,
-        })
+        }))
     }
 
     /// Bootstrap proxy-only credentials by performing an initial token refresh.

@@ -231,13 +231,25 @@ async fn main() -> Result<()> {
 
     // ── Auth manager ────────────────────────────────────────────────
     let app_auth_manager = if is_proxy_only {
-        let am = auth::AuthManager::new_from_env(&config)
-            .context("Failed to create auth manager from env vars")?;
-        tracing::info!("Bootstrapping proxy-only credentials...");
-        am.bootstrap_proxy_credentials()
-            .await
-            .context("Failed to bootstrap proxy credentials. Check KIRO_REFRESH_TOKEN.")?;
-        am
+        match auth::AuthManager::new_from_env(&config)
+            .context("Failed to create auth manager from env vars")?
+        {
+            Some(am) => {
+                tracing::info!("Bootstrapping Kiro proxy credentials...");
+                am.bootstrap_proxy_credentials()
+                    .await
+                    .context("Failed to bootstrap Kiro credentials. Check KIRO_REFRESH_TOKEN.")?;
+                am
+            }
+            None => {
+                // No Kiro credentials — running with other providers only
+                auth::AuthManager::new_placeholder(
+                    config.kiro_region.clone(),
+                    config.token_refresh_threshold,
+                )
+                .context("Failed to create placeholder auth manager")?
+            }
+        }
     } else if setup_complete_flag {
         init_app_auth_from_config_db(&config, &config_db).await?
     } else {
