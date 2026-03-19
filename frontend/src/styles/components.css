@@ -662,6 +662,34 @@ select.config-input {
   border-color: var(--text-tertiary);
 }
 
+.password-input-wrapper {
+  position: relative;
+  margin-bottom: 14px;
+}
+
+.password-input-wrapper .auth-input {
+  margin-bottom: 0;
+  padding-right: 40px;
+}
+
+.btn-password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.btn-password-toggle:hover {
+  color: var(--text);
+}
+
 .config-save-bar {
   position: sticky;
   bottom: 0;
