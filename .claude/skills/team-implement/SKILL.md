@@ -48,10 +48,15 @@ Agents without assigned tasks remain idle and available for ad-hoc work via `Sen
 
 ### Phase 3: Branch Creation
 
-Create a feature branch for the implementation:
-```bash
-git checkout -b feat/{feature-slug}
-```
+Before any work begins, ensure we're on a feature branch — never work directly on main.
+
+1. Check current branch: `git branch --show-current`
+2. If on `main`:
+   - Create and switch to a feature branch: `git checkout -b feat/{feature-slug}`
+3. If already on a feature branch (`feat/`, `fix/`, `refactor/`, `chore/`):
+   - Use the existing branch
+4. If on an unexpected branch:
+   - Ask the user via AskUserQuestion whether to use it or create a new one
 
 ### Phase 4: Plan Decomposition
 
