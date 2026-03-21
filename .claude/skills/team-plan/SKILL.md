@@ -114,4 +114,87 @@ Write plan to `.claude/plans/` with:
 
 ## Branch
 `feat/{feature-slug}` or `fix/{feature-slug}`
+
+## Review Status
+- Codex review: {passed / adjusted / escalated}
+- Findings addressed: {count}
+- Disputed findings: {count}
 ```
+
+## Phase 6: Codex Plan Review Gate
+
+After writing the plan file, invoke Codex CLI to review it. No `/team-implement` until this gate passes.
+
+### 6.1 Run Codex Review
+
+```bash
+PLAN_FILE=".claude/plans/{plan-file}.md"
+REVIEW_FILE=".claude/plans/{plan-name}-codex-review.md"
+
+codex exec \
+  -s read-only \
+  --ephemeral \
+  -o "$REVIEW_FILE" \
+  "team-review --plan $PLAN_FILE"
+```
+
+### 6.2 Evaluate Review
+
+Read the Codex review file and classify each finding:
+
+| Severity | Action |
+|----------|--------|
+| **high** | Must address — adjust the plan |
+| **medium** | Evaluate — adjust if valid, note if disputed |
+| **low/info** | Acknowledge, no plan change needed |
+
+### 6.3 Adjustment Loop (max 1 round)
+
+If Codex found high/medium issues:
+1. Evaluate each finding against the codebase (read the actual files Codex cited)
+2. If the finding is **valid**: adjust the plan accordingly
+3. If the finding is a **hallucination** (Codex citing nonexistent code, wrong patterns, or incorrect assumptions):
+   - Note it as "disputed" in the review summary
+   - Do NOT adjust the plan for hallucinated findings
+
+After adjustments, re-run Codex review once:
+```bash
+codex exec -s read-only --ephemeral -o "$REVIEW_FILE" "team-review --plan $PLAN_FILE"
+```
+
+**Only 1 adjustment round.** After the second Codex review:
+- If Codex approves or only has low/info findings → gate passes
+- If Codex still insists on disputed findings → escalate to user
+
+### 6.4 Escalation
+
+If Codex and Claude disagree after 1 adjustment round, present both perspectives to the user via AskUserQuestion:
+
+```
+Codex review found issues that I believe are incorrect:
+
+1. [Codex finding]: "..."
+   [My assessment]: "This is not applicable because..."
+
+How should we proceed?
+- Accept plan as-is (override Codex)
+- Adjust plan per Codex suggestions
+- Let me review the specific findings
+```
+
+The user's decision is final.
+
+### 6.5 Clean Up
+
+Delete the ephemeral review file after the gate passes:
+```bash
+rm -f "$REVIEW_FILE"
+```
+
+### 6.6 Gate Result
+
+The plan is approved for `/team-implement` only when:
+1. Codex review has no unresolved high findings, AND
+2. User has accepted the plan (via ExitPlanMode)
+
+Update the plan's `## Review Status` section with the final result.
