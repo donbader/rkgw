@@ -7,7 +7,6 @@ allowed-tools:
   - Read
   - Grep
   - Glob
-  - Write
   - SendMessage
   - AskUserQuestion
   - TeamCreate
