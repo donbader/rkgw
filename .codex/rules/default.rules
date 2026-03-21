@@ -1,0 +1,87 @@
+# Block clearly destructive commands unless the user explicitly changes policy.
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "Do not discard repository state with hard resets. Inspect the diff and use non-destructive alternatives.",
+    match = [
+        "git reset --hard",
+        "git reset --hard HEAD~1",
+    ],
+    not_match = [
+        "git reset --soft HEAD~1",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "checkout", "--"],
+    decision = "forbidden",
+    justification = "Do not discard file changes with checkout --. Review the file and ask before reverting work.",
+    match = [
+        "git checkout -- frontend/src/App.tsx",
+    ],
+    not_match = [
+        "git checkout main",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rm", "-rf"],
+    decision = "forbidden",
+    justification = "Recursive force deletion is blocked by default. Use safer, narrower commands or ask the user first.",
+    match = [
+        "rm -rf .codex/tmp",
+        "rm -rf /tmp/example-dir",
+    ],
+    not_match = [
+        "rm -f /tmp/example-file",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "prompt",
+    justification = "Pushing changes should stay interactive in this repository.",
+    match = [
+        "git push",
+        "git push -u origin feat/codex-setup",
+    ],
+    not_match = [
+        "git pull --rebase",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "create"],
+    decision = "prompt",
+    justification = "Creating a PR should be confirmed each time.",
+    match = [
+        "gh pr create --title \"feat: add codex setup\" --body \"body\"",
+    ],
+    not_match = [
+        "gh pr view 12",
+    ],
+)
+
+prefix_rule(
+    pattern = ["gh", "pr", "merge"],
+    decision = "prompt",
+    justification = "Merging a PR is high impact and should remain interactive.",
+    match = [
+        "gh pr merge 123 --squash --delete-branch",
+    ],
+    not_match = [
+        "gh pr status",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", "worktree", "remove"],
+    decision = "prompt",
+    justification = "Removing a worktree can discard local state and should be confirmed.",
+    match = [
+        "git worktree remove .trees/review-123",
+    ],
+    not_match = [
+        "git worktree list",
+    ],
+)
