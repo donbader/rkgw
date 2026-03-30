@@ -25,6 +25,32 @@ const REFRESH_INTERVAL_SECS: u64 = 60;
 
 // ── Token file schema ────────────────────────────────────────────────
 
+/// Deserialize `expires_at` from either an integer or a string representation.
+/// The Copilot API returns integers, but some token files have string values.
+fn deserialize_expires_at<'de, D>(deserializer: D) -> std::result::Result<i64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+    struct I64OrString;
+    impl<'de> de::Visitor<'de> for I64OrString {
+        type Value = i64;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("an integer or a string containing an integer")
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> std::result::Result<i64, E> {
+            Ok(v)
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> std::result::Result<i64, E> {
+            Ok(v as i64)
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<i64, E> {
+            v.parse::<i64>().map_err(de::Error::custom)
+        }
+    }
+    deserializer.deserialize_any(I64OrString)
+}
+
 /// Top-level structure of `/data/tokens.json`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TokenFile {
@@ -42,6 +68,7 @@ pub struct OAuthTokenEntry {
     pub access_token: String,
     pub refresh_token: String,
     /// Unix timestamp (seconds) when the access token expires.
+    #[serde(deserialize_with = "deserialize_expires_at")]
     pub expires_at: i64,
 }
 
@@ -53,6 +80,7 @@ pub struct CopilotTokenEntry {
     /// Copilot API base URL.
     pub base_url: String,
     /// Unix timestamp when session_token expires.
+    #[serde(deserialize_with = "deserialize_expires_at")]
     pub expires_at: i64,
     /// Long-lived GitHub access token (opt-in persistence).
     #[serde(default)]
