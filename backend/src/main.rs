@@ -789,9 +789,10 @@ fn print_startup_banner(config: &config::Config) {
     let banner = r#"
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║              Kiro Gateway - Rust Edition                  ║
+║                    Harbangan Gateway                      ║
 ║                                                           ║
-║  OpenAI & Anthropic compatible proxy for Kiro API        ║
+║  Multi-provider AI proxy: Kiro, Anthropic, OpenAI,       ║
+║  GitHub Copilot — OpenAI & Anthropic API compatible      ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 "#;
